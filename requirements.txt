@@ -1,0 +1,20 @@
+# Neo-Link-Resolver Dependencies
+
+# Core Browser Automation
+playwright>=1.40.0
+
+# Stealth mode for anti-detection (optional, for future)
+# playwright-stealth>=0.1.0
+
+# AI/Vision (for future computer vision features)
+openai>=1.0.0
+
+# LangGraph for state machine orchestration (future)
+# langgraph>=0.0.1
+
+# API framework (for future API wrapping)
+# fastapi>=0.104.0
+# uvicorn>=0.24.0
+
+# Utilities
+python-dotenv>=1.0.0
