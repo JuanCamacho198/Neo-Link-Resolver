@@ -256,8 +256,17 @@ def build_ui():
 # Punto de entrada
 # =============================================================================
 if __name__ in {"__main__", "__mp_main__"}:
+    import os
+    
+    # Crear directorio de screenshots si no existe
+    screenshots_dir = os.path.join(os.path.dirname(__file__), '..', 'screenshots')
+    os.makedirs(screenshots_dir, exist_ok=True)
+    
     # Configurar NiceGUI
-    app.add_static_files('/screenshots', 'screenshots')  # Para servir screenshots si es necesario
+    try:
+        app.add_static_files('/screenshots', screenshots_dir)
+    except Exception as e:
+        print(f"Warning: Could not add static files: {e}")
     
     # Construir UI
     build_ui()
