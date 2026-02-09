@@ -20,9 +20,11 @@ Crear un agente capaz de navegar desde un enlace "sucio" (lleno de ads/shortener
 ### Mes 1: The "Wake Up" Phase (Fundamentos) 🟢
 - [x] Configurar entorno (Python, Playwright, dotenv).
 - [x] Implementar **Playwright** básico para abrir `peliculasgd.net` (`src/main.py`).
-- [ ] Crear lógica de navegación basada en selectores CSS simples.
-- [ ] Implementar búsqueda de películas por nombre en el sitio.
-- [ ] **Hito:** El script puede buscar una película y llegar a la página de links (aunque falle en los ads).
+- [x] Crear lógica de navegación basada en selectores CSS simples.
+- [x] Mapear y documentar flujo completo de navegación (7 pasos, multiples pestañas).
+- [x] Implementar simulación de comportamiento humano (`src/human_sim.py`).
+- [x] Implementar pipeline completo: película -> enlaces publicos -> intermediarios -> Google -> verificación -> link final.
+- [ ] **Hito:** El script puede navegar desde una película hasta el link final (testing en progreso).
 
 ### Mes 2: "I Know Kung Fu" (Visión Computacional) 🟡
 - [ ] Integrar modelo de Visión (GPT-4o Vision o Local).
@@ -50,11 +52,54 @@ Crear un agente capaz de navegar desde un enlace "sucio" (lleno de ads/shortener
 - [ ] Grabar video demo mostrando la "visión" del agente en tiempo real.
 - [ ] Escribir artículo de blog: "Cómo usé IA para arreglar la web rota".
 
+## 🗂️ Flujo de Navegacion (peliculasgd.net -> Link Final)
+
+El agente debe resolver la siguiente cadena de redirecciones y anti-bots:
+
+```
+Pagina de pelicula (peliculasgd.net)
+  |
+  v  Click en imagen "Enlaces Publicos" (img.wp-image-125438)
+  |
+Pagina intermedia 1 (ej: neworldtravel.com)  [nueva pestana]
+  |
+  v  Click en div.text "Haz clic aqui"
+  |
+Pagina intermedia 2 (ej: saboresmexico.com)  [nueva pestana]
+  |
+  v  Click en button.button-s "CLIC AQUI PARA CONTINUAR"
+  |
+Busqueda de Google  [nueva pestana]
+  |
+  v  Click en primer resultado de busqueda
+  |
+Pagina de verificacion humana
+  |  - Mover mouse, hacer scroll, clicks aleatorios
+  v  Click en boton "Continuar" (button.button-s con initSystem())
+  |
+Pagina de anuncio obligatorio
+  |  - Click en anuncio (#click_message)
+  |  - Esperar ~40 segundos
+  v
+  |
+Volver a Pagina intermedia 1 -> Link final disponible
+```
+
+### Selectores clave:
+| Paso | Selector / Identificador |
+|------|--------------------------|
+| Enlaces Publicos | `img.wp-image-125438` o `img[src*="cxx"]` |
+| Haz clic aqui | `div.text` con texto "Haz clic aqui" |
+| CLIC AQUI PARA CONTINUAR | `button.button-s` |
+| Primer resultado Google | `#search a[href]` (primer link) |
+| Continuar (verificacion) | `button.button-s` con `initSystem()` |
+| Anuncio obligatorio | `#click_message` + elemento de anuncio debajo |
+
 ## 📊 Progreso Actual
 
 | Fase | Estado | Progreso |
 |------|--------|----------|
-| Mes 1: Fundamentos | 🔧 En progreso | 2/5 tareas |
+| Mes 1: Fundamentos | 🔧 En progreso | 6/7 tareas |
 | Mes 2: Visión Computacional | ⏳ Pendiente | 0/4 tareas |
 | Mes 3: Evasión y Resiliencia | ⏳ Pendiente | 0/4 tareas |
 | Mes 4: API & Architecture | ⏳ Pendiente | 0/3 tareas |
@@ -63,10 +108,15 @@ Crear un agente capaz de navegar desde un enlace "sucio" (lleno de ads/shortener
 
 ### Lo que ya funciona:
 - Entorno configurado con Python + Playwright
-- Script base (`src/main.py`) que abre `peliculasgd.net`, espera carga y toma screenshot de reconocimiento
+- Script base (`src/main.py`) con pipeline de 7 pasos para navegar desde pelicula hasta link final
+- Simulacion de comportamiento humano (`src/human_sim.py`): mouse moves, scroll, clicks aleatorios
+- Manejo automatico de multiples pestanas (abrir nuevas, cerrar popups no deseados)
+- User-Agent personalizado y flags anti-deteccion de Chromium
+- Screenshots de debug en cada paso para diagnostico
 
 ### Siguiente paso:
-- Implementar navegación por selectores CSS para buscar películas y navegar a sus páginas de links
+- Testear el flujo completo con peliculasgd.net y ajustar selectores segun sea necesario
+- Los selectores de anuncios (Step 6) probablemente necesiten afinarse con la pagina real
 
 ## 🚀 Inicio Rápido
 
