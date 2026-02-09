@@ -142,14 +142,18 @@ Volver a Pagina intermedia 1 -> Link final disponible
 
 | Fase | Estado | Progreso |
 |------|--------|----------|
-| Mes 1: Fundamentos | ✅ Completado | 11/11 tareas |
+| Mes 1: Fundamentos | ✅ Completado | 14/14 tareas |
+| Mes 1.5: Polish & UX | 🔧 En progreso | 2/5 tareas |
 | Mes 2: Visión Computacional | ⏳ Pendiente | 0/4 tareas |
 | Mes 3: Evasión y Resiliencia | ⏳ Pendiente | 0/4 tareas |
 | Mes 4: API & Architecture | ⏳ Pendiente | 0/3 tareas |
 | Mes 5: Scaling & Docker | ⏳ Pendiente | 0/2 tareas |
 | Mes 6: Demo & Polishing | ⏳ Pendiente | 0/3 tareas |
 
-### Lo que ya funciona (v0.3):
+### Lo que ya funciona (v0.4 - GUI Edition):
+- ✅ **Interfaz grafica moderna** con NiceGUI (logs en tiempo real, formularios intuitivos)
+- ✅ **Visualizacion del proceso**: Observa en tiempo real cada paso que el agente ejecuta
+- ✅ **Logs coloreados**: INFO (azul), SUCCESS (verde), ERROR (rojo), STEP (morado)
 - ✅ Arquitectura modular con sistema de adaptadores por sitio
 - ✅ Motor de matching inteligente: rankea links por calidad/formato/proveedor (score 0-100)
 - ✅ CLI con criterios de busqueda personalizables (`--quality`, `--format`, `--provider`)
@@ -159,16 +163,17 @@ Volver a Pagina intermedia 1 -> Link final disponible
 - ✅ Manejo automatico de multiples pestanas, popups y redirects
 - ✅ Anti-deteccion: User-Agent custom, flags de Chromium
 
-### Nuevo en v0.3:
-- **Busqueda inteligente**: "Quiero WEB-DL 1080p en uTorrent" → el agente lo encuentra
-- **Multi-sitio**: Un solo comando funciona en peliculasgd.net y hackstore.mx
-- **Extensible**: Agregar nuevos sitios = crear 1 archivo adaptador
-- **README completo** con ejemplos de uso
+### Nuevo en v0.4:
+- **GUI completa**: `python src/gui.py` → interfaz web en `localhost:8080`
+- **Logs en vivo**: Ve exactamente que esta haciendo el agente en cada momento
+- **UX mejorada**: Copia el link final con un click, abre directamente en navegador
+- **Sistema de logging**: Arquitectura extensible para capturar logs de cualquier modulo
+- **Wrapper del resolver**: `resolver.py` para usar desde GUI o scripts externos
 
 ### Siguiente paso:
-- Testear ambos adaptadores con sitios reales
-- Ajustar selectores de hackstore.mx segun estructura real de la pagina
-- Considerar agregar vision computacional (GPT-4o Vision) para detectar botones fake
+- Testear GUI con ambos adaptadores (peliculasgd.net y hackstore.mx)
+- Agregar historial de links resueltos
+- Exportar resultados a JSON/CSV
 
 ## 🚀 Inicio Rápido
 
@@ -177,17 +182,12 @@ Volver a Pagina intermedia 1 -> Link final disponible
 pip install -r requirements.txt
 playwright install
 
-# Uso basico
-python src/main.py <url-de-la-pelicula>
+# Interfaz Grafica (RECOMENDADO - NUEVO v0.4)
+python src/gui.py
+# Se abrira automaticamente en http://localhost:8080
 
-# Con criterios de busqueda (NUEVO en v0.3)
-python src/main.py https://hackstore.mx/peliculas/eragon-2006 \
-  --quality 1080p \
-  --format WEB-DL \
-  --provider utorrent
-
-# Ver ayuda completa
-python src/main.py --help
+# O usar CLI
+python src/main.py <url-de-la-pelicula> --quality 1080p --format WEB-DL --provider utorrent
 ```
 
 Ver [README.md](README.md) para mas ejemplos y documentacion completa.
