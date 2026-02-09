@@ -6,6 +6,7 @@ Agente de navegacion autonomo que resuelve enlaces "sucios" (con acortadores, ad
 
 ## Caracteristicas
 
+- **Interfaz Grafica (NUEVO v0.4)**: GUI moderna con logs en tiempo real y visualizacion del proceso
 - **Multi-sitio**: Adaptadores para `peliculasgd.net`, `hackstore.mx` (extensible)
 - **Busqueda inteligente**: Filtra por calidad (1080p, 720p), formato (WEB-DL, BluRay), proveedor (uTorrent, Google Drive, Mega)
 - **Evasion anti-bot**: Simulacion de comportamiento humano (mouse, scroll, clicks aleatorios)
@@ -27,7 +28,27 @@ playwright install
 
 ## Uso
 
-### Basico
+### Interfaz Grafica (Recomendado)
+
+La forma mas facil de usar Neo-Link-Resolver es con la interfaz grafica:
+
+```bash
+python src/gui.py
+```
+
+Esto abrira automaticamente un navegador en `http://localhost:8080` con una interfaz moderna donde puedes:
+
+- Pegar la URL de la pelicula
+- Seleccionar calidad, formato y proveedores preferidos
+- **Ver en tiempo real** lo que el agente esta haciendo (logs en vivo)
+- Copiar el link final con un click
+- Abrir directamente el link de descarga
+
+![GUI Preview](docs/gui-screenshot.png)
+
+### Linea de Comandos (CLI)
+
+Si prefieres la terminal:
 
 ```bash
 python src/main.py <url-de-la-pelicula>
