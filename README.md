@@ -81,6 +81,20 @@ python src/main.py https://www.peliculasgd.net/bob-esponja-... \
 
 ## Ejemplos
 
+### Con la GUI
+
+1. Ejecuta `python src/gui.py`
+2. En la interfaz:
+   - Pega la URL: `https://hackstore.mx/peliculas/eragon-2006`
+   - Selecciona calidad: `1080p`
+   - Selecciona formato: `WEB-DL`
+   - Selecciona proveedores: `uTorrent`, `Google Drive`
+3. Click en "Resolver Link"
+4. Observa en tiempo real como el agente navega
+5. Cuando termine, copia el link final
+
+### Con CLI
+
 ```bash
 # peliculasgd.net - buscar mejor calidad disponible
 python src/main.py https://www.peliculasgd.net/bob-esponja-en-busca-de-los-pantalones-cuadrados-2025-web-dl-1080p-latino-googledrive/
@@ -97,6 +111,19 @@ python src/main.py https://hackstore.mx/peliculas/inception-2010 --headless
 
 ## Arquitectura
 
+```
+src/
+├── gui.py               # Interfaz grafica (NiceGUI) - NUEVO v0.4
+├── main.py              # Entry point con CLI
+├── resolver.py          # Wrapper del resolver con logging - NUEVO v0.4
+├── logger.py            # Sistema de logging en tiempo real - NUEVO v0.4
+├── config.py            # Configuracion global, criterios de busqueda
+├── matcher.py           # Motor de ranking de links
+├── human_sim.py         # Simulacion de comportamiento humano
+└── adapters/            # Sistema de adaptadores por sitio
+    ├── base.py          # Clase base abstracta
+    ├── peliculasgd.py   # Adaptador para peliculasgd.net (7 pasos)
+    └── hackstore.py     # Adaptador para hackstore.mx
 ```
 src/
 ├── main.py              # Entry point con CLI

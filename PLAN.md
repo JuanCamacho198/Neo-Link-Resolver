@@ -24,11 +24,21 @@ Crear un agente capaz de navegar desde un enlace "sucio" (lleno de ads/shortener
 - [x] Mapear y documentar flujo completo de navegación (7 pasos, multiples pestañas).
 - [x] Implementar simulación de comportamiento humano (`src/human_sim.py`).
 - [x] Implementar pipeline completo: película -> enlaces publicos -> intermediarios -> Google -> verificación -> link final.
-- [x] **NUEVO:** Arquitectura modular con sistema de adaptadores (multi-sitio).
-- [x] **NUEVO:** Motor de matching inteligente por calidad/formato/proveedor (`src/matcher.py`).
-- [x] **NUEVO:** Soporte para `hackstore.mx` con busqueda inteligente de links.
-- [x] **NUEVO:** CLI con criterios de busqueda (`--quality`, `--format`, `--provider`).
-- [x] **Hito:** Resolver links en 2 sitios diferentes con criterios personalizables.
+- [x] Arquitectura modular con sistema de adaptadores (multi-sitio).
+- [x] Motor de matching inteligente por calidad/formato/proveedor (`src/matcher.py`).
+- [x] Soporte para `hackstore.mx` con busqueda inteligente de links.
+- [x] CLI con criterios de busqueda (`--quality`, `--format`, `--provider`).
+- [x] **v0.4:** Interfaz grafica moderna con NiceGUI (`src/gui.py`).
+- [x] **v0.4:** Sistema de logging en tiempo real visible en la GUI (`src/logger.py`).
+- [x] **v0.4:** Wrapper del resolver con soporte para callbacks (`src/resolver.py`).
+- [x] **Hito:** Resolver links con GUI o CLI, visualizacion en tiempo real del proceso.
+
+### Mes 1.5: Polish & User Experience 🎨 (NUEVO)
+- [x] Crear interfaz grafica intuitiva y moderna.
+- [x] Logs en tiempo real durante la resolucion.
+- [ ] Agregar previews de screenshots en la GUI (opcional).
+- [ ] Sistema de favoritos/historial de links resueltos.
+- [ ] Exportar resultados a CSV/JSON.
 
 ### Mes 2: "I Know Kung Fu" (Visión Computacional) 🟡
 - [ ] Integrar modelo de Visión (GPT-4o Vision o Local).
