@@ -20,6 +20,7 @@ from resolver import LinkResolver
 from logger import get_logger
 from matcher import LinkOption
 from quality_detector import QualityDetector
+from history_manager import HistoryManager, ResolutionRecord
 
 
 # =============================================================================
@@ -30,9 +31,100 @@ class AppState:
         self.resolver: Optional[LinkResolver] = None
         self.is_resolving: bool = False
         self.result: Optional[LinkOption] = None
+        self.history_manager = HistoryManager()
+        self.current_filter = "all"  # all, favorites
 
 
 state = AppState()
+
+
+# =============================================================================
+# Funciones auxiliares para historial y exportacion
+# =============================================================================
+def render_history_table(records: List[ResolutionRecord], history_area):
+    """Renderiza la tabla de historial"""
+    history_area.clear()
+    
+    if not records:
+        with history_area:
+            ui.label("No hay registros en el historial").classes('text-grey-7 text-center py-4')
+        return
+    
+    with history_area:
+        # Header
+        with ui.row().classes('w-full gap-1 p-2 bg-grey-9 rounded font-bold text-sm sticky top-0'):
+            ui.label('⭐').classes('w-8 text-center')
+            ui.label('URL Original').classes('flex-grow truncate')
+            ui.label('Proveedor').classes('w-24')
+            ui.label('Calidad').classes('w-16')
+            ui.label('Score').classes('w-12')
+            ui.label('Acciones').classes('w-32')
+        
+        # Registros
+        for record in records:
+            with ui.row().classes('w-full gap-1 p-2 border-b hover:bg-grey-10 items-center text-xs'):
+                # Favorito
+                def make_toggle_fav(rec_id):
+                    def toggle():
+                        state.history_manager.toggle_favorite(rec_id)
+                        refresh_history_display(history_area)
+                    return toggle
+                
+                ui.button(
+                    '⭐' if record.is_favorite else '☆',
+                    on_click=make_toggle_fav(record.id)
+                ).props('flat dense').classes('w-8')
+                
+                # URL (truncada)
+                url_short = record.original_url[:40] + "..." if len(record.original_url) > 40 else record.original_url
+                ui.label(url_short).classes('flex-grow truncate').tooltip(record.original_url)
+                
+                # Proveedor
+                ui.label(record.provider or '-').classes('w-24')
+                
+                # Calidad
+                ui.label(record.quality or '-').classes('w-16')
+                
+                # Score
+                score_color = 'positive' if record.score >= 70 else 'warning' if record.score >= 40 else 'negative'
+                ui.label(f'{record.score:.0f}').classes(f'w-12 text-{score_color}')
+                
+                # Acciones
+                with ui.row().classes('w-32 gap-1'):
+                    # Copiar link
+                    def make_copy(url):
+                        def copy():
+                            ui.run_javascript(f'navigator.clipboard.writeText("{url}")')
+                            ui.notify('Link copiado!', type='positive')
+                        return copy
+                    
+                    ui.button(
+                        icon='content_copy',
+                        on_click=make_copy(record.resolved_url)
+                    ).props('flat dense size=sm').tooltip('Copiar')
+                    
+                    # Eliminar
+                    def make_delete(rec_id):
+                        def delete():
+                            state.history_manager.delete_record(rec_id)
+                            refresh_history_display(history_area)
+                            ui.notify('Registro eliminado', type='positive')
+                        return delete
+                    
+                    ui.button(
+                        icon='delete',
+                        on_click=make_delete(record.id)
+                    ).props('flat dense size=sm').tooltip('Eliminar')
+
+
+def refresh_history_display(history_area):
+    """Recarga la tabla de historial con el filtro actual"""
+    if state.current_filter == "favorites":
+        records = state.history_manager.get_favorites()
+    else:
+        records = state.history_manager.get_all_records()
+    
+    render_history_table(records, history_area)
 
 
 # =============================================================================
@@ -202,10 +294,10 @@ async def resolve_link(
 
 
 # =============================================================================
-# Construccion de la UI
+# Construccion de las tabs
 # =============================================================================
 def build_ui():
-    """Construye la interfaz completa con nuevo flujo: URL -> Detectar -> Resolver"""
+    """Construye la interfaz completa con tabs para Resolver e Historial"""
     
     # Header
     with ui.header().classes('items-center justify-between bg-gradient-to-r from-indigo-500 to-purple-600'):
@@ -222,6 +314,23 @@ def build_ui():
             ui.label('"There is no spoon... and there are no ads."').classes('text-italic text-grey-7')
             ui.label('Ingresa URL, detecta calidades, resuelve links automáticamente.').classes('text-sm mt-2')
 
+        # Tabbar para cambiar entre Resolver e Historial
+        with ui.tabs().classes('w-full'):
+            with ui.tab('🔗 Resolver'):
+                build_resolver_tab()
+            
+            with ui.tab('📚 Historial'):
+                build_history_tab()
+
+    # Footer
+    with ui.footer().classes('bg-grey-9'):
+        ui.label('Neo-Link-Resolver - Proyecto educacional').classes('text-grey-5 text-xs')
+
+
+def build_resolver_tab():
+    """Tab de resolucion de links"""
+    
+    with ui.column().classes('w-full gap-4'):
         # ============================================================
         # PASO 1: URL + Detectar Calidades
         # ============================================================
@@ -259,44 +368,29 @@ def build_ui():
                     detect_status = ui.label('Navegando a la página...').classes('text-grey-7 text-sm mt-2')
 
         # ============================================================
-        # PASO 2: Seleccionar preferencias (oculto al inicio)
+        # PASO 2: Seleccionar calidad y proveedores (oculto al inicio)
         # ============================================================
         config_card = ui.card().classes('w-full')
         config_card.set_visibility(False)
         
         with config_card:
-            ui.label('Paso 2: Selecciona Preferencias').classes('text-h6 mb-4')
+            ui.label('Paso 2: Selecciona Opción y Proveedores').classes('text-h6 mb-4')
             
-            # Grid de opciones
-            with ui.grid(columns='1fr 1fr').classes('gap-4 w-full'):
-                # Calidad
-                quality_select = ui.select(
-                    label='Calidad',
-                    options=['1080p', '720p', '480p'],
-                    value='1080p',
-                ).classes('w-full').props('outlined')
+            # Calidad + Formato combinado
+            quality_select = ui.select(
+                label='Calidad / Formato',
+                options=['1080p', '720p', '480p'],
+                value='1080p',
+            ).classes('w-full').props('outlined')
 
-                # Formato
-                format_select = ui.select(
-                    label='Formato',
-                    options=['WEB-DL', 'BluRay', 'BRRip', 'HDRip', 'DVDRip', 'CAMRip'],
-                    value='WEB-DL',
-                ).classes('w-full').props('outlined')
-
-            # Proveedores (multi-select)
+            # Proveedores dinámicos (se cargarán después del detection)
             providers_select = ui.select(
                 label='Proveedores preferidos',
-                options={
-                    'utorrent': 'uTorrent (Torrent)',
-                    'drive.google': 'Google Drive',
-                    'mega': 'Mega.nz',
-                    'mediafire': 'MediaFire',
-                    '1fichier': '1fichier',
-                },
-                value=['utorrent', 'drive.google'],
+                options=['Cargando...'],
+                value=['Cargando...'],
                 multiple=True,
             ).classes('w-full mt-4').props('outlined')
-
+            
             # Boton resolver y progreso
             with ui.row().classes('w-full justify-end gap-2 mt-6'):
                 resolve_btn = ui.button(
@@ -370,7 +464,10 @@ def build_ui():
             ui.label('El resultado aparecera aqui...').classes('text-grey-7 text-center py-8')
 
         # ============================================================
-        # Handlers de eventos
+        # Variables globales para almacenar estado
+        # ============================================================
+        detected_qualities = []  # Almacenar las calidades detectadas
+        
         # ============================================================
         async def on_detect_click():
             """Click en Detectar Calidades"""
@@ -398,12 +495,52 @@ def build_ui():
                     ui.notify('No se detectaron calidades en la página', type='warning')
                     return
                 
+                # Guardar las cualidades detectadas para usar en resolución
+                detected_qualities.clear()
+                detected_qualities.extend(qualities)
+                
                 detect_status.set_text(f'Se detectaron {len(qualities)} calidades')
                 
-                # Actualizar opciones de calidad
-                quality_options = {q["quality"]: f'{q["label"]}' for q in qualities}
+                # Actualizar opciones de calidad con el display combinado
+                quality_options = {q["display"]: q["display"] for q in qualities}
                 quality_select.options = quality_options
-                quality_select.value = qualities[0]["quality"] if qualities else "1080p"
+                quality_select.value = qualities[0]["display"] if qualities else "1080p"
+                
+                # Detectar proveedores disponibles
+                detect_status.set_text('Detectando proveedores...')
+                try:
+                    from adapters import get_adapter
+                    from playwright.sync_api import sync_playwright
+                    
+                    adapter = get_adapter(url)
+                    if adapter:
+                        with sync_playwright() as p:
+                            context = p.chromium.launch(headless=True).new_context()
+                            adapter.set_context(context)
+                            providers = adapter.detect_providers(url)
+                            context.browser.close()
+                        
+                        if providers:
+                            providers_select.options = providers
+                            providers_select.value = providers[:2] if len(providers) >= 2 else providers
+                            detect_status.set_text(f'Se detectaron {len(providers)} proveedores')
+                        else:
+                            # Si no se detectan, usar opciones por defecto
+                            default_providers = ['MediaFire', 'MEGA', 'Google Drive', 'uTorrent']
+                            providers_select.options = default_providers
+                            providers_select.value = default_providers[:2]
+                            detect_status.set_text('Usando proveedores por defecto')
+                    else:
+                        # Si no hay adaptador, usar opciones por defecto
+                        default_providers = ['MediaFire', 'MEGA', 'Google Drive', 'uTorrent']
+                        providers_select.options = default_providers
+                        providers_select.value = default_providers[:2]
+                except Exception as e:
+                    ui.notify(f'Error detectando proveedores: {str(e)[:50]}', type='warning')
+                    # Usar opciones por defecto si hay error
+                    default_providers = ['MediaFire', 'MEGA', 'Google Drive', 'uTorrent']
+                    providers_select.options = default_providers
+                    providers_select.value = default_providers[:2]
                 
                 ui.notify(f'✅ Se detectaron {len(qualities)} calidades!', type='positive')
                 config_card.set_visibility(True)
@@ -423,10 +560,17 @@ def build_ui():
                 ui.notify('Por favor ingresa una URL', type='warning')
                 return
             
+            # Procesar la calidad seleccionada (está combinada con formato)
+            selected_quality_display = quality_select.value
+            quality_info = next(
+                (q for q in detected_qualities if q["display"] == selected_quality_display),
+                {"quality": "1080p", "format": ""}
+            )
+            
             await resolve_link(
                 url=url_input.value,
-                quality=quality_select.value,
-                format_type=format_select.value,
+                quality=quality_info.get("quality", "1080p"),
+                format_type=quality_info.get("format", ""),
                 providers=providers_select.value,
                 log_area=log_area,
                 logs_card=logs_card,
@@ -442,9 +586,78 @@ def build_ui():
         detect_btn.on_click(on_detect_click)
         resolve_btn.on_click(on_resolve_click)
 
-    # Footer
-    with ui.footer().classes('bg-grey-9'):
-        ui.label('Neo-Link-Resolver - Proyecto educacional').classes('text-grey-5 text-xs')
+
+def build_history_tab():
+    """Tab de historial y favoritos"""
+    
+    with ui.column().classes('w-full gap-4'):
+        # Encabezado con filtros y opciones
+        with ui.card().classes('w-full'):
+            ui.label('Historial de Links Resueltos').classes('text-h6 mb-4')
+            
+            # Fila de controles
+            with ui.row().classes('w-full gap-2'):
+                # Filtro
+                def on_filter_change(filter_type: str):
+                    state.current_filter = filter_type
+                    refresh_history_display(history_area)
+                
+                with ui.row().classes('gap-1'):
+                    ui.label('Filtro:').classes('text-bold')
+                    all_btn = ui.button('Todos', on_click=lambda: on_filter_change("all")).props('outline size=sm')
+                    fav_btn = ui.button('⭐ Favoritos', on_click=lambda: on_filter_change("favorites")).props('outline size=sm')
+                
+                ui.separator().classes('mx-2')
+                
+                # Exportar
+                with ui.row().classes('gap-1'):
+                    ui.label('Exportar:').classes('text-bold')
+                    
+                    def export_to_format(format_type: str):
+                        records = state.history_manager.get_all_records()
+                        if not records:
+                            ui.notify('No hay registros para exportar', type='warning')
+                            return
+                        
+                        if format_type == "json":
+                            success, result = state.history_manager.export_to_json(records)
+                        else:
+                            success, result = state.history_manager.export_to_csv(records)
+                        
+                        if success:
+                            ui.notify(f'✅ Exportado a {format_type.upper()}: {result}', type='positive')
+                        else:
+                            ui.notify(f'❌ Error exportando: {result}', type='negative')
+                    
+                    ui.button('JSON', on_click=lambda: export_to_format("json")).props('outline size=sm')
+                    ui.button('CSV', on_click=lambda: export_to_format("csv")).props('outline size=sm')
+                
+                ui.separator().classes('mx-2')
+                
+                # Estadísticas
+                def show_stats():
+                    stats = state.history_manager.get_statistics()
+                    message = f"""
+                    📊 Estadísticas del Historial:
+                    
+                    Total de registros: {stats.get('total_records', 0)}
+                    Favoritos: {stats.get('total_favorites', 0)}
+                    Tasa de éxito: {stats.get('success_rate', 0):.1f}%
+                    Proveedor más usado: {stats.get('most_used_provider', 'N/A')}
+                    Calidad más usada: {stats.get('most_used_quality', 'N/A')}
+                    Score promedio: {stats.get('average_score', 0):.1f}
+                    """
+                    ui.notify(message, type='info')
+                
+                ui.button('📊 Stats', on_click=show_stats).props('outline size=sm')
+        
+        # Area de historial
+        history_card = ui.card().classes('w-full')
+        with history_card:
+            history_area = ui.column().classes('w-full gap-2 overflow-auto max-h-96')
+            
+            # Cargar historial inicial
+            refresh_history_display(history_area)
 
 
 # =============================================================================

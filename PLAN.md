@@ -36,9 +36,8 @@ Crear un agente capaz de navegar desde un enlace "sucio" (lleno de ads/shortener
 ### Mes 1.5: Polish & User Experience 🎨 (NUEVO)
 - [x] Crear interfaz grafica intuitiva y moderna.
 - [x] Logs en tiempo real durante la resolucion.
-- [ ] Agregar previews de screenshots en la GUI (opcional).
-- [ ] Sistema de favoritos/historial de links resueltos.
-- [ ] Exportar resultados a CSV/JSON.
+- [x] Sistema de favoritos/historial de links resueltos.
+- [x] Exportar resultados a CSV/JSON.
 
 ### Mes 2: "I Know Kung Fu" (Visión Computacional) 🟡
 - [ ] Integrar modelo de Visión (GPT-4o Vision o Local).
@@ -143,7 +142,7 @@ Volver a Pagina intermedia 1 -> Link final disponible
 | Fase | Estado | Progreso |
 |------|--------|----------|
 | Mes 1: Fundamentos | ✅ Completado | 14/14 tareas |
-| Mes 1.5: Polish & UX | 🔧 En progreso | 2/5 tareas |
+| Mes 1.5: Polish & UX | ✅ Completado | 4/4 tareas |
 | Mes 2: Visión Computacional | ⏳ Pendiente | 0/4 tareas |
 | Mes 3: Evasión y Resiliencia | ⏳ Pendiente | 0/4 tareas |
 | Mes 4: API & Architecture | ⏳ Pendiente | 0/3 tareas |
@@ -163,17 +162,17 @@ Volver a Pagina intermedia 1 -> Link final disponible
 - ✅ Manejo automatico de multiples pestanas, popups y redirects
 - ✅ Anti-deteccion: User-Agent custom, flags de Chromium
 
-### Nuevo en v0.4:
-- **GUI completa**: `python src/gui.py` → interfaz web en `localhost:8080`
-- **Logs en vivo**: Ve exactamente que esta haciendo el agente en cada momento
-- **UX mejorada**: Copia el link final con un click, abre directamente en navegador
-- **Sistema de logging**: Arquitectura extensible para capturar logs de cualquier modulo
-- **Wrapper del resolver**: `resolver.py` para usar desde GUI o scripts externos
+### Nuevo en v0.5:
+- **Sistema de Historial**: BD SQLite para guardar todos los links resueltos (con timestamp, score, provider, etc)
+- **Favoritos**: Marcar/desmarcar links como favoritos directamente desde la GUI
+- **Exportación**: Exportar historial completo o solo favoritos a JSON y CSV
+- **Búsqueda**: Buscar registros por URL, notas, proveedor, etc
+- **Estadísticas**: Ver estadísticas del historial (tasa de éxito, proveedor más usado, score promedio)
+- **Tab de Historial**: Nueva tab en la GUI para gestionar y consultar el historial de resoluciones
+- **Integración automática**: El resolver guarda automáticamente cada link resuelto en el historial
 
 ### Siguiente paso:
-- Testear GUI con ambos adaptadores (peliculasgd.net y hackstore.mx)
-- Agregar historial de links resueltos
-- Exportar resultados a JSON/CSV
+- Continuar a Mes 2: Visión Computacional (integrar GPT-4o Vision para análisis de screenshots)
 
 ## 🚀 Inicio Rápido
 

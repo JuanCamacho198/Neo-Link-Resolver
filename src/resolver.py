@@ -10,6 +10,7 @@ from adapters import get_adapter
 from matcher import LinkOption
 from logger import get_logger
 from screenshot_handler import ScreenshotHandler
+from history_manager import HistoryManager
 import time
 
 
@@ -25,6 +26,7 @@ class LinkResolver:
         self.screenshot_callback = screenshot_callback
         self.screenshot_handler = ScreenshotHandler(callback=screenshot_callback)
         self.max_retries = max_retries
+        self.history_manager = HistoryManager()
 
     def resolve(
         self,
@@ -152,6 +154,16 @@ class LinkResolver:
                         self.logger.info(f"Quality: {result.quality or 'N/A'}")
                         self.logger.info(f"Format: {result.format or 'N/A'}")
                         self.logger.info(f"Score: {result.score:.1f}/100")
+                        
+                        # Guardar en historial
+                        self.history_manager.add_record(
+                            original_url=url,
+                            resolved_url=result.url,
+                            quality=result.quality or "",
+                            format_type=result.format or "",
+                            provider=result.provider or "",
+                            score=result.score
+                        )
                     else:
                         self.logger.error("Adapter returned None - could not resolve link")
 
