@@ -1,0 +1,90 @@
+╔════════════════════════════════════════════════════════════════════════════════╗
+║                   NEO-LINK-RESOLVER v0.4.4 - MEJORAS UI                       ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ PROBLEMA: Usuario no sabe si el click fue registrado                          ┃
+┃ El spinner era muy pequeño (size='sm') y casi invisible                       ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ANTES                                    │ DESPUÉS                            │
+├──────────────────────────────────────────┼────────────────────────────────────┤
+│                                          │                                    │
+│ Paso 1: URL y Detectar                   │ Paso 1: URL y Detectar             │
+│ URL Input  [        ] [Detectar]        │ URL Input  [        ] [Detectar]  │
+│              ↓                            │              ↓                     │
+│ Spinner invisible o muy pequeño          │ ⟳ Detectando calidades...         │
+│                                          │ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ (barra)           │
+│                                          │ Analizando estructura HTML...      │
+│                                          │                                    │
+└──────────────────────────────────────────┴────────────────────────────────────┘
+
+╔════════════════════════════════════════════════════════════════════════════════╗
+║                         COMPONENTES AGREGADOS                                 ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+1️⃣  SPINNER GRANDE (size='lg')
+    ├─ Color primario para detección
+    ├─ Color positivo (verde) para resolución
+    └─ Rotación continua mientras procesa
+
+2️⃣  BARRA DE PROGRESO INDETERMINADA
+    ├─ Animación fluida sin porcentaje
+    ├─ Ancho completo del contenedor
+    └─ Color acorde al paso (primario/positivo)
+
+3️⃣  ETIQUETA DE ESTADO
+    ├─ Se actualiza en tiempo real
+    ├─ Conectada al logger del sistema
+    ├─ Mensajes descriptivos:
+    │  • "Navegando a la página..."
+    │  • "Analizando estructura HTML..."
+    │  • "Iniciando navegador..."
+    │  • "Extrayendo links..."
+    │  • "Rankeando resultados..."
+    └─ Máximo 100 caracteres para no desbordar
+
+╔════════════════════════════════════════════════════════════════════════════════╗
+║                            EXPERIENCIA MEJORADA                               ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+✅ Usuario ve inmediatamente que algo sucede
+✅ Feedback visual claro y profesional
+✅ Spinner grande y fácil de notar
+✅ Barra de progreso indica procesamiento
+✅ Mensajes de estado muestran qué se está haciendo
+✅ Notificaciones de éxito/error claras
+✅ Botones deshabilitados previenen clicks múltiples
+✅ Interfaz más responsive y moderna
+
+╔════════════════════════════════════════════════════════════════════════════════╗
+║                            CAMBIOS TÉCNICOS                                   ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+Archivos Modificados:
+  • src/gui.py (v0.4.4)
+    - Contenedor detect_progress_container (oculto al inicio)
+    - Contenedor resolve_progress_container (oculto al inicio)
+    - Spinner large en detección
+    - Spinner large en resolución
+    - Barras de progreso indeterminadas
+    - Etiquetas de estado dinámicas
+    - Integración con logger para actualizaciones
+
+Documentación:
+  • UI_IMPROVEMENTS.md - Guía completa de cambios
+  • CAMBIOS_UI.txt - Este archivo con resumen visual
+
+╔════════════════════════════════════════════════════════════════════════════════╗
+║                          PRÓXIMAS MEJORAS POTENCIALES                         ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+□ Porcentaje de progreso real (si es calculable)
+□ Animaciones de transición
+□ Sonidos de notificación
+□ Tema oscuro automático
+□ Mejoras responsive para mobile
+□ Estimación de tiempo restante
+□ Visualización de stages completados
+
