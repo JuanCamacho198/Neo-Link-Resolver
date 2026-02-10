@@ -3,12 +3,13 @@ resolver.py - Wrapper del sistema de resolucion con logging integrado.
 Interfaz simplificada para usar desde GUI o CLI.
 """
 
-from typing import Optional
+from typing import Optional, Callable
 from playwright.sync_api import sync_playwright
 from config import SearchCriteria
 from adapters import get_adapter
 from matcher import LinkOption
 from logger import get_logger
+from screenshot_handler import ScreenshotHandler
 
 
 class LinkResolver:
@@ -16,9 +17,11 @@ class LinkResolver:
     Wrapper del resolver que integra logging y manejo de errores.
     """
 
-    def __init__(self, headless: bool = True):
+    def __init__(self, headless: bool = True, screenshot_callback: Optional[Callable] = None):
         self.headless = headless
         self.logger = get_logger()
+        self.screenshot_callback = screenshot_callback
+        self.screenshot_handler = ScreenshotHandler(callback=screenshot_callback)
 
     def resolve(
         self,

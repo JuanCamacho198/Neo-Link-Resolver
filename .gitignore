@@ -1,0 +1,128 @@
+# ===== PYTHON =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ===== VIRTUAL ENVIRONMENTS =====
+venv/
+ENV/
+env/
+.venv
+.ENV
+
+# ===== IDE & EDITORS =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+.project
+.pydevproject
+.settings/
+*.code-workspace
+
+# ===== TESTING =====
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.hypothesis/
+.pytest_cache
+nosetests.xml
+coverage.xml
+*.cover
+
+# ===== SCREENSHOT & MEDIA =====
+# Ignorar carpetas y archivos de screenshots/media
+.screenshots/
+screenshots/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.webp
+
+# ===== TEMPORARY FILES =====
+*.tmp
+*.temp
+*.log
+*.bak
+*.orig
+*.rej
+
+# ===== OS FILES =====
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ===== ENVIRONMENT VARIABLES =====
+.env
+.env.local
+.env.*.local
+*.env
+
+# ===== NODE (si se usa en frontend) =====
+node_modules/
+npm-debug.log
+yarn-error.log
+.npm
+
+# ===== PLAYWRIGHT =====
+.browsers/
+*.webm
+
+# ===== PROJECT SPECIFIC =====
+# Archivos de debug
+*_debug.html
+hackstore_*.png
+gui_*.png
+test_gui.py
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# Cache
+.cache/
+*.cache
+
+# Otros archivos temporales del proyecto
+temp/
+tmp/
+_temp/
+_tmp/
