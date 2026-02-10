@@ -297,7 +297,7 @@ async def resolve_link(
 # Construccion de las tabs
 # =============================================================================
 def build_ui():
-    """Construye la interfaz completa con tabs para Resolver e Historial"""
+    """Construye la interfaz completa con selector de vista"""
     
     # Header
     with ui.header().classes('items-center justify-between bg-gradient-to-r from-indigo-500 to-purple-600'):
@@ -314,13 +314,33 @@ def build_ui():
             ui.label('"There is no spoon... and there are no ads."').classes('text-italic text-grey-7')
             ui.label('Ingresa URL, detecta calidades, resuelve links automáticamente.').classes('text-sm mt-2')
 
-        # Tabbar para cambiar entre Resolver e Historial
-        with ui.tabs().classes('w-full'):
-            with ui.tab('🔗 Resolver'):
-                build_resolver_tab()
+        # Botones para cambiar entre vistas
+        view_state = {'current': 'resolver'}
+        view_container = ui.column().classes('w-full')
+        
+        with ui.row().classes('w-full gap-2 mb-4'):
+            def show_resolver():
+                view_state['current'] = 'resolver'
+                refresh_view(view_container)
             
-            with ui.tab('📚 Historial'):
-                build_history_tab()
+            def show_history():
+                view_state['current'] = 'history'
+                refresh_view(view_container)
+            
+            resolver_btn = ui.button('🔗 Resolver', on_click=show_resolver).props('outline')
+            history_btn = ui.button('📚 Historial', on_click=show_history).props('outline')
+        
+        def refresh_view(container):
+            container.clear()
+            with container:
+                if view_state['current'] == 'resolver':
+                    build_resolver_tab()
+                else:
+                    build_history_tab()
+        
+        # Mostrar vista inicial
+        with view_container:
+            build_resolver_tab()
 
     # Footer
     with ui.footer().classes('bg-grey-9'):
@@ -344,7 +364,7 @@ def build_resolver_tab():
                     url_input = ui.input(
                         label='URL',
                         placeholder='https://hackstore.mx/peliculas/matrix-1999',
-                    ).classes('flex-grow').props('outlined clearable')
+                    ).classes('flex-grow').props('outlined clearable dense')
                     
                     detect_btn = ui.button(
                         'Detectar Calidades',
