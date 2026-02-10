@@ -10,18 +10,21 @@ from adapters import get_adapter
 from matcher import LinkOption
 from logger import get_logger
 from screenshot_handler import ScreenshotHandler
+import time
 
 
 class LinkResolver:
     """
     Wrapper del resolver que integra logging y manejo de errores.
+    Incluye retry logic con backoff exponencial para recuperarse de fallos transitorios.
     """
 
-    def __init__(self, headless: bool = True, screenshot_callback: Optional[Callable] = None):
+    def __init__(self, headless: bool = True, screenshot_callback: Optional[Callable] = None, max_retries: int = 2):
         self.headless = headless
         self.logger = get_logger()
         self.screenshot_callback = screenshot_callback
         self.screenshot_handler = ScreenshotHandler(callback=screenshot_callback)
+        self.max_retries = max_retries
 
     def resolve(
         self,
@@ -33,10 +36,34 @@ class LinkResolver:
     ) -> Optional[LinkOption]:
         """
         Resuelve un link con los criterios especificados.
+        Implementa retry logic con exponential backoff.
         
         Returns:
             LinkOption con el mejor link encontrado, o None si falla.
         """
+        # Intentar resolver con retry
+        for attempt in range(self.max_retries + 1):
+            try:
+                result = self._resolve_internal(url, quality, format_type, providers, language)
+                return result
+            except Exception as e:
+                if attempt < self.max_retries:
+                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    self.logger.warning(f"Resolution attempt {attempt + 1} failed: {str(e)[:80]}")
+                    self.logger.info(f"Retrying after {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    self.logger.error(f"All {self.max_retries + 1} resolution attempts failed")
+                    return None
+    
+    def _resolve_internal(
+        self,
+        url: str,
+        quality: str = "1080p",
+        format_type: str = "WEB-DL",
+        providers: list = None,
+        language: str = "latino",
+    ) -> Optional[LinkOption]:
         if providers is None:
             providers = ["utorrent", "drive.google"]
 
