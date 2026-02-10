@@ -40,6 +40,11 @@ class LinkResolver:
         if providers is None:
             providers = ["utorrent", "drive.google"]
 
+        # Validar input
+        if not url or not isinstance(url, str):
+            self.logger.error(f"Invalid URL provided: {url}")
+            return None
+
         # Log inicio
         self.logger.info(f"Starting resolution for: {url[:80]}...")
         self.logger.info(f"Search criteria: {quality} {format_type} - Providers: {', '.join(providers)}")
@@ -53,34 +58,50 @@ class LinkResolver:
         )
 
         result = None
+        browser = None
+        context = None
 
         try:
             with sync_playwright() as p:
                 # Lanzar navegador
-                self.logger.step("INIT", "Launching browser...")
-                browser = p.chromium.launch(
-                    headless=self.headless,
-                    args=[
-                        "--disable-blink-features=AutomationControlled",
-                        "--no-first-run",
-                        "--no-default-browser-check",
-                    ],
-                )
+                try:
+                    self.logger.step("INIT", "Launching browser...")
+                    browser = p.chromium.launch(
+                        headless=self.headless,
+                        args=[
+                            "--disable-blink-features=AutomationControlled",
+                            "--no-first-run",
+                            "--no-default-browser-check",
+                        ],
+                    )
+                except Exception as e:
+                    self.logger.error(f"Failed to launch browser: {e}")
+                    return None
 
-                context = browser.new_context(
-                    viewport={"width": 1366, "height": 768},
-                    user_agent=(
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/120.0.0.0 Safari/537.36"
-                    ),
-                )
+                try:
+                    context = browser.new_context(
+                        viewport={"width": 1366, "height": 768},
+                        user_agent=(
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/120.0.0.0 Safari/537.36"
+                        ),
+                    )
+                except Exception as e:
+                    self.logger.error(f"Failed to create browser context: {e}")
+                    if browser:
+                        browser.close()
+                    return None
 
                 try:
                     # Seleccionar adaptador
                     self.logger.step("ADAPTER", "Selecting site adapter...")
-                    adapter = get_adapter(url, context, criteria)
-                    self.logger.success(f"Using adapter: {adapter.name()}")
+                    try:
+                        adapter = get_adapter(url, context, criteria)
+                        self.logger.success(f"Using adapter: {adapter.name()}")
+                    except ValueError as e:
+                        self.logger.error(f"Unsupported site: {e}")
+                        return None
 
                     # Patchear el adaptador para que use nuestro logger
                     original_log = adapter.log
@@ -91,7 +112,11 @@ class LinkResolver:
 
                     # Resolver
                     self.logger.step("RESOLVE", "Starting navigation...")
-                    result = adapter.resolve(url)
+                    try:
+                        result = adapter.resolve(url)
+                    except Exception as e:
+                        self.logger.error(f"Adapter resolution failed: {e}")
+                        return None
 
                     if result:
                         self.logger.success("Link resolved successfully!")
@@ -101,21 +126,30 @@ class LinkResolver:
                         self.logger.info(f"Format: {result.format or 'N/A'}")
                         self.logger.info(f"Score: {result.score:.1f}/100")
                     else:
-                        self.logger.error("Could not resolve link")
+                        self.logger.error("Adapter returned None - could not resolve link")
 
-                except ValueError as e:
-                    self.logger.error(f"Unsupported site: {e}")
                 except Exception as e:
-                    self.logger.error(f"Resolution failed: {e}")
+                    self.logger.error(f"Unexpected error during resolution: {e}")
                     import traceback
                     self.logger.error(traceback.format_exc())
 
                 finally:
-                    browser.close()
-                    self.logger.step("EXIT", "Browser closed")
+                    # Cleanup
+                    if context:
+                        try:
+                            context.close()
+                        except Exception as e:
+                            self.logger.warning(f"Error closing context: {e}")
+                    
+                    if browser:
+                        try:
+                            browser.close()
+                            self.logger.step("EXIT", "Browser closed")
+                        except Exception as e:
+                            self.logger.warning(f"Error closing browser: {e}")
 
         except Exception as e:
-            self.logger.error(f"Fatal error: {e}")
+            self.logger.error(f"Fatal error in resolve: {e}")
             import traceback
             self.logger.error(traceback.format_exc())
 

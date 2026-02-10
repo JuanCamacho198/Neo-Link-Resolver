@@ -35,203 +35,287 @@ class HackstoreAdapter(SiteAdapter):
         """
         self.log("INIT", f"Opening {url[:80]}...")
         
-        page = self.context.new_page()
-        page.goto(url, timeout=TIMEOUT_NAV)
-        page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
-        random_delay(1.0, 3.0)
-
-        self.log("INIT", "Movie page loaded. Taking screenshot...")
-        page.screenshot(path="hackstore_movie_page.png")
-
-        # Extraer todos los links de descarga disponibles
-        raw_links = self._extract_download_links(page)
-        self.log("EXTRACT", f"Found {len(raw_links)} download links")
-
-        if not raw_links:
-            self.log("ERROR", "No download links found on page")
-            page.screenshot(path="hackstore_no_links_debug.png")
-            page.close()
+        page = None
+        try:
+            page = self.context.new_page()
+        except Exception as e:
+            self.log("ERROR", f"Failed to create new page: {e}")
             return None
+        
+        try:
+            try:
+                page.goto(url, timeout=TIMEOUT_NAV)
+                page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
+            except Exception as e:
+                self.log("ERROR", f"Navigation timeout or failed ({url[:60]}): {e}")
+                page.screenshot(path="hackstore_nav_error.png")
+                return None
+            
+            random_delay(1.0, 3.0)
 
-        # Usar el matcher para rankear links
-        matcher = LinkMatcher(self.criteria)
-        ranked = matcher.parse_and_rank(raw_links)
+            self.log("INIT", "Movie page loaded. Taking screenshot...")
+            try:
+                page.screenshot(path="hackstore_movie_page.png")
+            except Exception as e:
+                self.log("WARNING", f"Failed to take screenshot: {e}")
 
-        # Log de los top 5
-        self.log("RANK", "Top 5 links:")
-        for i, link in enumerate(ranked[:5], 1):
-            self.log("RANK", f"  {i}. {link}")
+            # Extraer todos los links de descarga disponibles
+            try:
+                raw_links = self._extract_download_links(page)
+                self.log("EXTRACT", f"Found {len(raw_links)} download links")
+            except Exception as e:
+                self.log("ERROR", f"Failed to extract links: {e}")
+                return None
 
-        best_link = ranked[0]
-        self.log("RESULT", f"Best link: {best_link.url[:100]}")
+            if not raw_links:
+                self.log("ERROR", "No download links found on page")
+                try:
+                    page.screenshot(path="hackstore_no_links_debug.png")
+                except:
+                    pass
+                return None
 
-        # Si el mejor link requiere navegacion adicional (ej: acortador),
-        # navegar para obtener el link final
-        if self._is_shortener(best_link.url):
-            self.log("NAV", "Best link is a shortener, resolving...")
-            final_url = self._resolve_shortener(page, best_link.url)
-            best_link.url = final_url
+            # Usar el matcher para rankear links
+            try:
+                matcher = LinkMatcher(self.criteria)
+                ranked = matcher.parse_and_rank(raw_links)
+            except Exception as e:
+                self.log("ERROR", f"Failed to rank links: {e}")
+                return None
 
-        page.close()
-        return best_link
+            # Log de los top 5
+            self.log("RANK", "Top 5 links:")
+            for i, link in enumerate(ranked[:5], 1):
+                self.log("RANK", f"  {i}. {link}")
 
-    def _extract_download_links(self, page: Page) -> List[dict]:
-         """
-         Extrae los links de descarga de hackstore de forma interactiva.
-         
-         Hackstore usa un sistema dinámico donde:
-         1. Se muestran headings con calidades: "WEB-DL 1080p", "1080p", "720p"
-         2. Al hacer click en el heading, se expanden los proveedores disponibles
-         3. Cada proveedor tiene un botón "Descargar" que redirige a la URL final
-         
-         Flujo:
-         - Buscar todos los headings h3 con calidad
-         - Para cada heading, hacer click para expandir
-         - Esperar a que aparezcan los botones de proveedor
-         - Hacer click en cada botón de proveedor (preferentemente utorrent, mega, mediafire)
-         - Capturar la URL a la que redirige
-         
-         Retorna: [{"url": "...", "text": "..."}, ...]
-         """
-         links = []
-         
-         try:
-             # Esperar a que los elementos de descarga carguen
-             page.wait_for_selector("h3", timeout=TIMEOUT_ELEMENT * 1000)
-             
-             # Obtener el HTML completo como fallback
-             html_content = page.content()
-             
-             # Patrones de proveedores conocidos (en orden de preferencia)
-             providers_preferred = [
-                 "utorrent",
-                 "mega",
-                 "mediafire",
-                 "drive.google",
-                 "dropbox"
-             ]
-             
-             providers_all = [
-                 "utorrent.com",
-                 "mega.nz",
-                 "www.mediafire.com",
-                 "megaup.net",
-                 "1fichier.com",
-                 "ranoz.gg",
-                 "drive.google.com",
-                 "dropbox.com",
-                 "gofile.io",
-                 "mediafire",
-                 "mega",
-                 "dropbox",
-                 "google drive"
-             ]
-             
-             # Buscar headings de calidad
-             headings = page.query_selector_all("h3")
-             qualities_found = []
-             
-             for heading in headings:
-                 text = heading.inner_text().strip()
-                 if any(q in text.lower() for q in ["1080p", "720p", "480p", "dvdrip", "web-dl", "bluray", "remux", "1080", "720", "480"]):
-                     qualities_found.append((text, heading))
-                     self.log("EXTRACT", f"Found quality section: {text}")
-             
-             if not qualities_found:
-                 self.log("EXTRACT", "No quality sections found, using fallback HTML search")
-                 return self._extract_links_fallback(html_content, providers_all)
-             
-             self.log("EXTRACT", f"Found {len(qualities_found)} quality sections, processing interactively...")
-             
-             # Procesar cada calidad de forma interactiva
-             for quality_text, heading_element in qualities_found:
-                 self.log("EXTRACT", f"Processing quality: {quality_text}")
-                 
-                 try:
-                     # Hacer scroll hasta el elemento si es necesario
-                     heading_element.scroll_into_view_if_needed()
-                     random_delay(0.3, 0.7)
-                     
-                     # Click en el heading para expandir
-                     heading_element.click()
-                     random_delay(0.5, 1.5)
-                     self.log("EXTRACT", f"  Clicked on {quality_text}, waiting for providers to appear...")
-                     
-                     # Esperar a que aparezcan los botones de descarga
-                     # Los botones típicamente aparecen como <a>, <button>, o elementos con clase "download", "descargar"
-                     try:
-                         # Intentar esperar a que aparezcan elementos de descarga
-                         page.wait_for_selector("a[href*='descargar'], button:has-text('Descargar'), .btn-descargar", timeout=3000)
-                     except:
-                         self.log("EXTRACT", "  No download button selector found, searching for provider links...")
-                     
-                     # Buscar botones de proveedor cerca del heading expandido
-                     # Generalmente están en el siguiente párrafo o div
-                     provider_elements = self._find_provider_buttons_after_heading(page, heading_element)
-                     
-                     self.log("EXTRACT", f"  Found {len(provider_elements)} provider buttons for {quality_text}")
-                     
-                     for provider_button in provider_elements:
-                         try:
-                             provider_text = provider_button.inner_text().strip()
-                             
-                             # Identificar el proveedor
-                             provider_name = self._identify_provider(provider_text, providers_all)
-                             
-                             if not provider_name:
-                                 self.log("EXTRACT", f"    Skipping unknown provider: {provider_text}")
-                                 continue
-                             
-                             self.log("EXTRACT", f"    Clicking provider: {provider_name}")
-                             
-                             # Hacer click en el botón del proveedor
-                             # Usar una estrategia de seguimiento de respuesta para capturar la URL
-                             page.on("response", lambda response: self._capture_redirect_url(response, quality_text, provider_name, links))
-                             
-                             provider_button.click()
-                             random_delay(1.0, 2.0)
-                             
-                             # Intentar obtener la URL actual (podría haber sido redirigida)
-                             current_url = page.url
-                             if current_url and not current_url.startswith("https://hackstore.mx"):
-                                 # La página fue redirigida a un destino real
-                                 links.append({
-                                     "url": current_url,
-                                     "text": f"{quality_text} - {provider_name}"
-                                 })
-                                 self.log("EXTRACT", f"    Captured URL: {current_url[:80]}")
-                             
-                             # Volver a la página original
-                             page.go_back()
-                             random_delay(1.0, 2.0)
-                             
-                         except Exception as e:
-                             self.log("ERROR", f"    Error processing provider button: {e}")
-                             continue
-                 
-                 except Exception as e:
-                     self.log("ERROR", f"Error processing quality {quality_text}: {e}")
-                     continue
-             
-             # Si no encontramos links interactivamente, usar fallback
-             if not links:
-                 self.log("EXTRACT", "No links found interactively, using fallback HTML search...")
-                 links = self._extract_links_fallback(html_content, providers_all)
-         
-         except Exception as e:
-             self.log("ERROR", f"Exception in _extract_download_links: {e}")
-             # Fallback a búsqueda HTML simple
-             links = self._extract_links_fallback(page.content(), providers_all)
-         
-         # Deduplicar
-         seen = set()
-         unique_links = []
-         for link in links:
-             if link.get("url") and link["url"] not in seen:
-                 seen.add(link["url"])
-                 unique_links.append(link)
-         
-         return unique_links
+            best_link = ranked[0]
+            self.log("RESULT", f"Best link: {best_link.url[:100]}")
+
+            # Si el mejor link requiere navegacion adicional (ej: acortador),
+            # navegar para obtener el link final
+            if self._is_shortener(best_link.url):
+                self.log("NAV", "Best link is a shortener, resolving...")
+                try:
+                    final_url = self._resolve_shortener(page, best_link.url)
+                    best_link.url = final_url
+                except Exception as e:
+                    self.log("WARNING", f"Failed to resolve shortener: {e}")
+                    # Continuar con URL original si falla
+
+            return best_link
+        
+        except Exception as e:
+            self.log("ERROR", f"Unexpected error in resolve: {e}")
+            return None
+        
+        finally:
+            # Cleanup: Always close page
+            if page:
+                try:
+                    page.close()
+                except Exception as e:
+                    self.log("WARNING", f"Error closing page: {e}")
+
+     def _extract_download_links(self, page: Page) -> List[dict]:
+          """
+          Extrae los links de descarga de hackstore de forma interactiva.
+          
+          Hackstore usa un sistema dinámico donde:
+          1. Se muestran headings con calidades: "WEB-DL 1080p", "1080p", "720p"
+          2. Al hacer click en el heading, se expanden los proveedores disponibles
+          3. Cada proveedor tiene un botón "Descargar" que redirige a la URL final
+          
+          Flujo:
+          - Buscar todos los headings h3 con calidad
+          - Para cada heading, hacer click para expandir
+          - Esperar a que aparezcan los botones de proveedor
+          - Hacer click en cada botón de proveedor (preferentemente utorrent, mega, mediafire)
+          - Capturar la URL a la que redirige
+          
+          Retorna: [{"url": "...", "text": "..."}, ...]
+          """
+          links = []
+          
+          try:
+              # Esperar a que los elementos de descarga carguen
+              try:
+                  page.wait_for_selector("h3", timeout=TIMEOUT_ELEMENT * 1000)
+              except Exception as e:
+                  self.log("WARNING", f"Timeout waiting for h3 elements: {e}")
+              
+              # Obtener el HTML completo como fallback
+              html_content = page.content()
+              
+              # Patrones de proveedores conocidos (en orden de preferencia)
+              providers_preferred = [
+                  "utorrent",
+                  "mega",
+                  "mediafire",
+                  "drive.google",
+                  "dropbox"
+              ]
+              
+              providers_all = [
+                  "utorrent.com",
+                  "mega.nz",
+                  "www.mediafire.com",
+                  "megaup.net",
+                  "1fichier.com",
+                  "ranoz.gg",
+                  "drive.google.com",
+                  "dropbox.com",
+                  "gofile.io",
+                  "mediafire",
+                  "mega",
+                  "dropbox",
+                  "google drive"
+              ]
+              
+              # Buscar headings de calidad
+              try:
+                  headings = page.query_selector_all("h3")
+              except Exception as e:
+                  self.log("WARNING", f"Failed to query h3 selectors: {e}")
+                  headings = []
+              
+              qualities_found = []
+              
+              for heading in headings:
+                  try:
+                      text = heading.inner_text().strip()
+                      if any(q in text.lower() for q in ["1080p", "720p", "480p", "dvdrip", "web-dl", "bluray", "remux", "1080", "720", "480"]):
+                          qualities_found.append((text, heading))
+                          self.log("EXTRACT", f"Found quality section: {text}")
+                  except Exception as e:
+                      self.log("WARNING", f"Error reading heading text: {e}")
+                      continue
+              
+              if not qualities_found:
+                  self.log("EXTRACT", "No quality sections found, using fallback HTML search")
+                  return self._extract_links_fallback(html_content, providers_all)
+              
+              self.log("EXTRACT", f"Found {len(qualities_found)} quality sections, processing interactively...")
+              
+              # Procesar cada calidad de forma interactiva
+              for quality_text, heading_element in qualities_found:
+                  self.log("EXTRACT", f"Processing quality: {quality_text}")
+                  
+                  try:
+                      # Hacer scroll hasta el elemento si es necesario
+                      try:
+                          heading_element.scroll_into_view_if_needed()
+                      except Exception as e:
+                          self.log("WARNING", f"Failed to scroll into view: {e}")
+                      
+                      random_delay(0.3, 0.7)
+                      
+                      # Click en el heading para expandir
+                      try:
+                          heading_element.click()
+                      except Exception as e:
+                          self.log("WARNING", f"Failed to click heading: {e}")
+                          continue
+                      
+                      random_delay(0.5, 1.5)
+                      self.log("EXTRACT", f"  Clicked on {quality_text}, waiting for providers to appear...")
+                      
+                      # Esperar a que aparezcan los botones de descarga
+                      # Los botones típicamente aparecen como <a>, <button>, o elementos con clase "download", "descargar"
+                      try:
+                          # Intentar esperar a que aparezcan elementos de descarga
+                          page.wait_for_selector("a[href*='descargar'], button:has-text('Descargar'), .btn-descargar", timeout=3000)
+                      except:
+                          self.log("EXTRACT", "  No download button selector found, searching for provider links...")
+                      
+                      # Buscar botones de proveedor cerca del heading expandido
+                      # Generalmente están en el siguiente párrafo o div
+                      try:
+                          provider_elements = self._find_provider_buttons_after_heading(page, heading_element)
+                      except Exception as e:
+                          self.log("WARNING", f"Failed to find provider buttons: {e}")
+                          provider_elements = []
+                      
+                      self.log("EXTRACT", f"  Found {len(provider_elements)} provider buttons for {quality_text}")
+                      
+                      for provider_button in provider_elements:
+                          try:
+                              provider_text = provider_button.inner_text().strip()
+                              
+                              # Identificar el proveedor
+                              provider_name = self._identify_provider(provider_text, providers_all)
+                              
+                              if not provider_name:
+                                  self.log("EXTRACT", f"    Skipping unknown provider: {provider_text}")
+                                  continue
+                              
+                              self.log("EXTRACT", f"    Clicking provider: {provider_name}")
+                              
+                              # Hacer click en el botón del proveedor
+                              # Usar una estrategia de seguimiento de respuesta para capturar la URL
+                              try:
+                                  page.on("response", lambda response: self._capture_redirect_url(response, quality_text, provider_name, links))
+                              except Exception as e:
+                                  self.log("WARNING", f"Failed to register response listener: {e}")
+                              
+                              try:
+                                  provider_button.click()
+                              except Exception as e:
+                                  self.log("WARNING", f"Failed to click provider button: {e}")
+                                  continue
+                              
+                              random_delay(1.0, 2.0)
+                              
+                              # Intentar obtener la URL actual (podría haber sido redirigida)
+                              try:
+                                  current_url = page.url
+                                  if current_url and not current_url.startswith("https://hackstore.mx"):
+                                      # La página fue redirigida a un destino real
+                                      links.append({
+                                          "url": current_url,
+                                          "text": f"{quality_text} - {provider_name}"
+                                      })
+                                      self.log("EXTRACT", f"    Captured URL: {current_url[:80]}")
+                              except Exception as e:
+                                  self.log("WARNING", f"Failed to get current URL: {e}")
+                              
+                              # Volver a la página original
+                              try:
+                                  page.go_back()
+                                  random_delay(1.0, 2.0)
+                              except Exception as e:
+                                  self.log("WARNING", f"Failed to go back: {e}")
+                              
+                          except Exception as e:
+                              self.log("WARNING", f"    Error processing provider button: {e}")
+                              continue
+                  
+                  except Exception as e:
+                      self.log("WARNING", f"Error processing quality {quality_text}: {e}")
+                      continue
+              
+              # Si no encontramos links interactivamente, usar fallback
+              if not links:
+                  self.log("EXTRACT", "No links found interactively, using fallback HTML search...")
+                  links = self._extract_links_fallback(html_content, providers_all)
+          
+          except Exception as e:
+              self.log("ERROR", f"Exception in _extract_download_links: {e}")
+              # Fallback a búsqueda HTML simple
+              try:
+                  html = page.content()
+                  links = self._extract_links_fallback(html, providers_all)
+              except Exception as fallback_e:
+                  self.log("ERROR", f"Fallback also failed: {fallback_e}")
+          
+          # Deduplicar
+          seen = set()
+          unique_links = []
+          for link in links:
+              if link.get("url") and link["url"] not in seen:
+                  seen.add(link["url"])
+                  unique_links.append(link)
+          
+          return unique_links
      
     def _find_provider_buttons_after_heading(self, page: Page, heading_element) -> List:
         """

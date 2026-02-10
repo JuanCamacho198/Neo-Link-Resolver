@@ -45,6 +45,7 @@ async def resolve_link(
 ):
     """
     Ejecuta la resolucion de forma asincrona y actualiza la UI.
+    Incluye manejo robusto de errores.
     """
     state.is_resolving = True
     state.result = None
@@ -106,13 +107,21 @@ async def resolve_link(
 
     # Ejecutar resolucion en thread separado (para no bloquear UI)
     def run_resolver():
-        resolver = LinkResolver(headless=False, screenshot_callback=screenshot_callback)
-        return resolver.resolve(url, quality, format_type, providers)
+        try:
+            resolver = LinkResolver(headless=False, screenshot_callback=screenshot_callback)
+            return resolver.resolve(url, quality, format_type, providers)
+        except Exception as e:
+            logger.log("ERROR", f"Resolver exception: {str(e)[:100]}")
+            return None
 
     # Ejecutar en executor (thread pool)
-    result = await asyncio.get_event_loop().run_in_executor(
-        None, run_resolver
-    )
+    try:
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, run_resolver
+        )
+    except Exception as e:
+        logger.log("ERROR", f"Task execution failed: {str(e)[:100]}")
+        result = None
 
     # Actualizar resultado
     state.result = result
@@ -123,56 +132,60 @@ async def resolve_link(
     # Mostrar resultado
     result_card.clear()
     with result_card:
-        if result and result.url != "LINK_NOT_RESOLVED":
-            ui.label("Resolucion exitosa!").classes('text-h6 text-positive')
-            ui.separator()
-            
-            # Link final (clickeable y copiable)
-            ui.label("Link de descarga:").classes('text-bold mt-4')
-            link_text = ui.input(
-                value=result.url,
-            ).classes('w-full font-mono').props('outlined dense readonly')
-            
-            # Botones de accion
-            with ui.row().classes('gap-2 mt-2'):
-                ui.button(
-                    'Copiar Link',
-                    icon='content_copy',
-                    on_click=lambda: (
-                        ui.run_javascript(f'navigator.clipboard.writeText("{result.url}")'),
-                        ui.notify('Link copiado al portapapeles!', type='positive')
-                    )
-                ).props('outline color=primary')
+        try:
+            if result and result.url != "LINK_NOT_RESOLVED":
+                ui.label("Resolucion exitosa!").classes('text-h6 text-positive')
+                ui.separator()
                 
-                ui.button(
-                    'Abrir en navegador',
-                    icon='open_in_new',
-                    on_click=lambda: ui.run_javascript(f'window.open("{result.url}", "_blank")')
-                ).props('outline color=primary')
+                # Link final (clickeable y copiable)
+                ui.label("Link de descarga:").classes('text-bold mt-4')
+                link_text = ui.input(
+                    value=result.url,
+                ).classes('w-full font-mono').props('outlined dense readonly')
+                
+                # Botones de accion
+                with ui.row().classes('gap-2 mt-2'):
+                    ui.button(
+                        'Copiar Link',
+                        icon='content_copy',
+                        on_click=lambda: (
+                            ui.run_javascript(f'navigator.clipboard.writeText("{result.url}")'),
+                            ui.notify('Link copiado al portapapeles!', type='positive')
+                        )
+                    ).props('outline color=primary')
+                    
+                    ui.button(
+                        'Abrir en navegador',
+                        icon='open_in_new',
+                        on_click=lambda: ui.run_javascript(f'window.open("{result.url}", "_blank")')
+                    ).props('outline color=primary')
 
-            # Detalles del resultado
-            ui.separator().classes('my-4')
-            ui.label("Detalles:").classes('text-bold')
-            
-            with ui.grid(columns=2).classes('gap-2 mt-2'):
-                ui.label("Proveedor:").classes('text-grey-7')
-                ui.label(result.provider or 'N/A').classes('text-bold')
+                # Detalles del resultado
+                ui.separator().classes('my-4')
+                ui.label("Detalles:").classes('text-bold')
                 
-                ui.label("Calidad:").classes('text-grey-7')
-                ui.label(result.quality or 'N/A').classes('text-bold')
-                
-                ui.label("Formato:").classes('text-grey-7')
-                ui.label(result.format or 'N/A').classes('text-bold')
-                
-                ui.label("Score:").classes('text-grey-7')
-                score_color = 'positive' if result.score >= 70 else 'warning' if result.score >= 40 else 'negative'
-                ui.label(f'{result.score:.1f}/100').classes(f'text-bold text-{score_color}')
+                with ui.grid(columns=2).classes('gap-2 mt-2'):
+                    ui.label("Proveedor:").classes('text-grey-7')
+                    ui.label(result.provider or 'N/A').classes('text-bold')
+                    
+                    ui.label("Calidad:").classes('text-grey-7')
+                    ui.label(result.quality or 'N/A').classes('text-bold')
+                    
+                    ui.label("Formato:").classes('text-grey-7')
+                    ui.label(result.format or 'N/A').classes('text-bold')
+                    
+                    ui.label("Score:").classes('text-grey-7')
+                    score_color = 'positive' if result.score >= 70 else 'warning' if result.score >= 40 else 'negative'
+                    ui.label(f'{result.score:.1f}/100').classes(f'text-bold text-{score_color}')
 
-        else:
-            ui.label("No se pudo resolver el link").classes('text-h6 text-negative')
-            ui.label("Revisa los logs para mas detalles.").classes('text-grey-7')
-            if screenshot_list:
-                ui.label(f"Se capturaron {len(screenshot_list)} screenshots que puedes revisar en la seccion de visualizacion.").classes('text-xs text-warning mt-2')
+            else:
+                ui.label("No se pudo resolver el link").classes('text-h6 text-negative')
+                ui.label("Revisa los logs para mas detalles.").classes('text-grey-7')
+                if screenshot_list:
+                    ui.label(f"Se capturaron {len(screenshot_list)} screenshots que puedes revisar en la seccion de visualizacion.").classes('text-xs text-warning mt-2')
+        except Exception as e:
+            ui.label("Error displaying results").classes('text-h6 text-negative')
+            ui.label(f"Details: {str(e)[:100]}").classes('text-xs text-grey-7')
 
 
 # =============================================================================
@@ -317,8 +330,18 @@ def build_ui():
                 detect_btn.disable()
                 
                 try:
+                    # Validar formato de URL
+                    url = url_input.value.strip()
+                    if not url.startswith("http://") and not url.startswith("https://"):
+                        ui.notify('URL debe comenzar con http:// o https://', type='warning')
+                        return
+                    
                     detector = QualityDetector(headless=True)
-                    qualities = detector.detect_qualities(url_input.value)
+                    qualities = detector.detect_qualities(url)
+                    
+                    if not qualities:
+                        ui.notify('No se detectaron calidades en la página', type='warning')
+                        return
                     
                     # Actualizar opciones de calidad
                     quality_options = {q["quality"]: f'{q["label"]}' for q in qualities}
@@ -328,8 +351,11 @@ def build_ui():
                     ui.notify(f'Se detectaron {len(qualities)} calidades!', type='positive')
                     config_card.set_visibility(True)
                     
+                except ValueError as e:
+                    ui.notify(f'URL inválida: {str(e)[:50]}', type='warning')
                 except Exception as e:
-                    ui.notify(f'Error al detectar: {str(e)[:50]}', type='negative')
+                    error_msg = str(e)[:100]
+                    ui.notify(f'Error al detectar: {error_msg}', type='negative')
                 finally:
                     detect_spinner.set_visibility(False)
                     detect_btn.enable()
