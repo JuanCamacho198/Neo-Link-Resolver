@@ -7,6 +7,12 @@ Ejecutar:
 Abre un navegador con la interfaz en http://localhost:8081
 """
 
+import sys
+import os
+
+# Agregar el directorio actual (src) al path para imports relativos
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from nicegui import ui, app
 import asyncio
 from typing import Optional, List, Dict
@@ -38,11 +44,13 @@ async def resolve_link(
     format_type: str,
     providers: list,
     log_area,
+    logs_card,
     result_card,
     resolve_btn,
     resolve_progress_container,
     resolve_status,
     screenshot_area,
+    screenshot_card,
 ):
     """
     Ejecuta la resolucion de forma asincrona y actualiza la UI.
@@ -51,6 +59,8 @@ async def resolve_link(
     state.result = None
     resolve_btn.disable()
     resolve_progress_container.set_visibility(True)
+    logs_card.set_visibility(True)  # Mostrar logs
+    screenshot_card.set_visibility(True)  # Mostrar screenshots
 
     # Limpiar areas
     log_area.clear()
@@ -137,7 +147,7 @@ async def resolve_link(
     with result_card:
         try:
             if result and result.url != "LINK_NOT_RESOLVED":
-                ui.label("Resolucion exitosa!").classes('text-h6 text-positive')
+                ui.label("✅ ¡Resolucion exitosa!").classes('text-h6 text-positive')
                 ui.separator()
                 
                 # Link final (clickeable y copiable)
@@ -182,7 +192,7 @@ async def resolve_link(
                     ui.label(f'{result.score:.1f}/100').classes(f'text-bold text-{score_color}')
 
             else:
-                ui.label("No se pudo resolver el link").classes('text-h6 text-negative')
+                ui.label("❌ No se pudo resolver el link").classes('text-h6 text-negative')
                 ui.label("Revisa los logs para mas detalles.").classes('text-grey-7')
                 if screenshot_list:
                     ui.label(f"Se capturaron {len(screenshot_list)} screenshots que puedes revisar en la seccion de visualizacion.").classes('text-xs text-warning mt-2')
@@ -311,29 +321,42 @@ def build_ui():
                 resolve_status = ui.label('Iniciando navegador...').classes('text-grey-7 text-sm')
 
         # ============================================================
-        # Area de visualizacion (screenshots)
+        # Area de visualizacion (screenshots) - OCULTA AL INICIO
         # ============================================================
-        with ui.card().classes('w-full'):
+        screenshot_card = ui.card().classes('w-full')
+        screenshot_card.set_visibility(False)
+        
+        with screenshot_card:
             with ui.row().classes('items-center justify-between mb-2'):
-                ui.label('Visualizacion en tiempo real').classes('text-h6')
-                ui.label('📹 Lo que el agente esta viendo').classes('text-xs text-grey-7')
-
+                ui.label('📹 Visualización en Tiempo Real').classes('text-h6')
+                ui.button(
+                    icon='close',
+                    on_click=lambda: screenshot_card.set_visibility(False)
+                ).props('flat dense').tooltip('Cerrar')
+            
             screenshot_area = ui.column().classes(
                 'w-full bg-grey-10 p-4 rounded-lg border'
             )
             with screenshot_area:
-                ui.label('Los screenshots aparecran aqui...').classes('text-grey-7 text-center py-8')
+                ui.label('Los screenshots aparecerán aquí...').classes('text-grey-7 text-center py-8')
 
         # ============================================================
-        # Area de logs
+        # Area de logs - OCULTA AL INICIO
         # ============================================================
-        with ui.card().classes('w-full'):
+        logs_card = ui.card().classes('w-full')
+        logs_card.set_visibility(False)
+        
+        with logs_card:
             with ui.row().classes('items-center justify-between mb-2'):
-                ui.label('Logs en tiempo real').classes('text-h6')
+                ui.label('📋 Logs en Tiempo Real').classes('text-h6')
                 ui.button(
                     icon='delete_sweep',
                     on_click=lambda: log_area.clear()
                 ).props('flat dense').tooltip('Limpiar logs')
+                ui.button(
+                    icon='close',
+                    on_click=lambda: logs_card.set_visibility(False)
+                ).props('flat dense').tooltip('Cerrar')
 
             log_area = ui.column().classes(
                 'w-full h-96 overflow-y-auto bg-grey-10 p-4 rounded-lg border'
@@ -410,11 +433,13 @@ def build_ui():
                     format_type=format_select.value,
                     providers=providers_select.value,
                     log_area=log_area,
+                    logs_card=logs_card,
                     result_card=result_card,
                     resolve_btn=resolve_btn,
                     resolve_progress_container=resolve_progress_container,
                     resolve_status=resolve_status,
                     screenshot_area=screenshot_area,
+                    screenshot_card=screenshot_card,
                 )
             
             app.add_background_task(resolve_task)
