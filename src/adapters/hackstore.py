@@ -28,6 +28,95 @@ class HackstoreAdapter(SiteAdapter):
     def name(self) -> str:
         return "Hackstore"
 
+    def detect_providers(self, url: str) -> List[str]:
+        """
+        Detecta los proveedores disponibles en una página de película.
+        
+        Retorna: ["mediafire", "mega", "utorrent", ...]
+        """
+        self.log("INIT", f"Detecting providers from {url[:80]}...")
+        
+        page = None
+        try:
+            page = self.context.new_page()
+        except Exception as e:
+            self.log("ERROR", f"Failed to create new page: {e}")
+            return []
+        
+        providers_found = set()
+        
+        try:
+            try:
+                page.goto(url, timeout=TIMEOUT_NAV)
+                page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
+            except Exception as e:
+                self.log("ERROR", f"Navigation timeout: {e}")
+                return []
+            
+            random_delay(1.0, 2.0)
+            
+            # Obtener el HTML completo
+            html_content = page.content()
+            
+            # Patrones de proveedores (actualizar si es necesario)
+            provider_patterns = {
+                r'(?:href|link)["\']?[^"\']*(?:mediafire|www\.mediafire)': 'MediaFire',
+                r'(?:href|link)["\']?[^"\']*(?:mega\.nz|mega\.io|mega\.co\.nz)': 'MEGA',
+                r'(?:href|link)["\']?[^"\']*(?:drive\.google|google\.drive|accounts\.google)': 'Google Drive',
+                r'(?:href|link)["\']?[^"\']*dropbox': 'Dropbox',
+                r'(?:href|link)["\']?[^"\']*utorrent': 'uTorrent',
+                r'(?:href|link)["\']?[^"\']*1fichier': '1Fichier',
+                r'(?:href|link)["\']?[^"\']*gofile': 'GoFile',
+            }
+            
+            import re
+            html_lower = html_content.lower()
+            
+            # Buscar proveedores en el HTML
+            for pattern, provider_name in provider_patterns.items():
+                if re.search(pattern, html_lower):
+                    providers_found.add(provider_name)
+                    self.log("EXTRACT", f"Found provider: {provider_name}")
+            
+            # Si no encontramos nada, buscar en texto
+            if not providers_found:
+                common_providers = ['mediafire', 'mega', 'drive', 'dropbox', 'utorrent', '1fichier', 'gofile']
+                for provider in common_providers:
+                    if provider in html_lower:
+                        # Capitalizar correctamente
+                        if provider == 'mediafire':
+                            providers_found.add('MediaFire')
+                        elif provider == 'mega':
+                            providers_found.add('MEGA')
+                        elif provider == 'drive':
+                            providers_found.add('Google Drive')
+                        elif provider == 'dropbox':
+                            providers_found.add('Dropbox')
+                        elif provider == 'utorrent':
+                            providers_found.add('uTorrent')
+                        elif provider == '1fichier':
+                            providers_found.add('1Fichier')
+                        elif provider == 'gofile':
+                            providers_found.add('GoFile')
+                        self.log("EXTRACT", f"Found provider (HTML search): {provider}")
+        
+        except Exception as e:
+            self.log("ERROR", f"Error detecting providers: {e}")
+        
+        finally:
+            if page:
+                try:
+                    page.close()
+                except Exception as e:
+                    self.log("WARNING", f"Error closing page: {e}")
+        
+        # Retornar lista ordenada (proveedores preferidos primero)
+        preferred_order = ['MEGA', 'MediaFire', 'Google Drive', 'uTorrent', 'Dropbox']
+        providers_ordered = [p for p in preferred_order if p in providers_found]
+        providers_ordered.extend(sorted(providers_found - set(preferred_order)))
+        
+        return providers_ordered if providers_ordered else []
+    
     def resolve(self, url: str) -> LinkOption:
         """
         Navega a la pagina de hackstore y encuentra el mejor link

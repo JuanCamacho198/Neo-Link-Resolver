@@ -53,12 +53,14 @@ class HistoryManager:
         Inicializa el gestor de historial.
         
         Args:
-            db_path: Ruta personalizada para la BD (default: directorio del proyecto)
+            db_path: Ruta personalizada para la BD (default: directorio data/)
         """
         if db_path is None:
-            # Usar directorio del proyecto
+            # Usar directorio data/ del proyecto
             base_dir = Path(__file__).parent.parent
-            db_path = base_dir / self.DB_FILENAME
+            data_dir = base_dir / "data"
+            data_dir.mkdir(exist_ok=True)
+            db_path = data_dir / self.DB_FILENAME
         else:
             db_path = Path(db_path) / self.DB_FILENAME
         
@@ -318,7 +320,9 @@ class HistoryManager:
             
             if filepath is None:
                 filename = f"neo_link_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-                filepath = Path(filename)
+                data_dir = Path(__file__).parent.parent / "data"
+                data_dir.mkdir(exist_ok=True)
+                filepath = data_dir / filename
             else:
                 filepath = Path(filepath)
             
@@ -354,7 +358,9 @@ class HistoryManager:
             
             if filepath is None:
                 filename = f"neo_link_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-                filepath = Path(filename)
+                data_dir = Path(__file__).parent.parent / "data"
+                data_dir.mkdir(exist_ok=True)
+                filepath = data_dir / filename
             else:
                 filepath = Path(filepath)
             

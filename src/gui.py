@@ -304,7 +304,7 @@ def build_ui():
         with ui.row().classes('items-center gap-3'):
             ui.label('🕶️').classes('text-3xl')
             ui.label('Neo-Link-Resolver').classes('text-h5 text-white font-bold')
-        ui.label('v0.4.6').classes('text-white text-sm')
+        ui.label('v0.5.0').classes('text-white text-sm')
 
     # Container principal
     with ui.column().classes('w-full max-w-6xl mx-auto p-6 gap-6'):
