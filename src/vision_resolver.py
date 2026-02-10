@@ -15,7 +15,7 @@ from vision_analyzer import VisionAnalyzer, AnalysisResult
 from logger import get_logger
 from screenshot_handler import ScreenshotHandler
 
-logger = get_logger(__name__)
+logger = get_logger()
 
 
 @dataclass
