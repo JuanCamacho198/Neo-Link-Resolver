@@ -6,7 +6,8 @@ Agente de navegacion autonomo que resuelve enlaces "sucios" (con acortadores, ad
 
 ## Caracteristicas
 
-- **Interfaz Grafica (NUEVO v0.4)**: GUI moderna con logs en tiempo real y visualizacion del proceso
+- **Interfaz Grafica (v0.4+)**: GUI moderna con logs en tiempo real y visualizacion del proceso
+- **Historial y Favoritos (NUEVO v0.5)**: Guarda automáticamente todos los links resueltos, marca favoritos, exporta a JSON/CSV
 - **Multi-sitio**: Adaptadores para `peliculasgd.net`, `hackstore.mx` (extensible)
 - **Busqueda inteligente**: Filtra por calidad (1080p, 720p), formato (WEB-DL, BluRay), proveedor (uTorrent, Google Drive, Mega)
 - **Evasion anti-bot**: Simulacion de comportamiento humano (mouse, scroll, clicks aleatorios)
@@ -36,13 +37,14 @@ La forma mas facil de usar Neo-Link-Resolver es con la interfaz grafica:
 python src/gui.py
 ```
 
-Esto abrira automaticamente un navegador en `http://localhost:8080` con una interfaz moderna donde puedes:
+Esto abrira automaticamente un navegador en `http://localhost:8081` con una interfaz moderna donde puedes:
 
 - Pegar la URL de la pelicula
 - Seleccionar calidad, formato y proveedores preferidos
 - **Ver en tiempo real** lo que el agente esta haciendo (logs en vivo)
 - Copiar el link final con un click
 - Abrir directamente el link de descarga
+- **Gestionar historial**: Ve todos los links que has resuelto, marca favoritos, exporta a JSON/CSV
 
 ![GUI Preview](docs/gui-screenshot.png)
 
@@ -113,25 +115,16 @@ python src/main.py https://hackstore.mx/peliculas/inception-2010 --headless
 
 ```
 src/
-├── gui.py               # Interfaz grafica (NiceGUI) - NUEVO v0.4
+├── gui.py               # Interfaz grafica (NiceGUI) - v0.4+
 ├── main.py              # Entry point con CLI
-├── resolver.py          # Wrapper del resolver con logging - NUEVO v0.4
-├── logger.py            # Sistema de logging en tiempo real - NUEVO v0.4
+├── resolver.py          # Wrapper del resolver con logging - v0.4+
+├── logger.py            # Sistema de logging en tiempo real - v0.4+
+├── history_manager.py   # Gestor de historial, favoritos y exportacion - NUEVO v0.5
 ├── config.py            # Configuracion global, criterios de busqueda
 ├── matcher.py           # Motor de ranking de links
 ├── human_sim.py         # Simulacion de comportamiento humano
 └── adapters/            # Sistema de adaptadores por sitio
     ├── base.py          # Clase base abstracta
-    ├── peliculasgd.py   # Adaptador para peliculasgd.net (7 pasos)
-    └── hackstore.py     # Adaptador para hackstore.mx
-```
-src/
-├── main.py              # Entry point con CLI
-├── config.py            # Configuracion global, criterios de busqueda
-├── matcher.py           # Motor de ranking de links
-├── human_sim.py         # Simulacion de comportamiento humano
-└── adapters/
-    ├── base.py          # Clase base para adaptadores
     ├── peliculasgd.py   # Adaptador para peliculasgd.net (7 pasos)
     └── hackstore.py     # Adaptador para hackstore.mx
 ```
