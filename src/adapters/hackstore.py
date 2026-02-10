@@ -116,7 +116,7 @@ class HackstoreAdapter(SiteAdapter):
                 except Exception as e:
                     self.log("WARNING", f"Error closing page: {e}")
 
-     def _extract_download_links(self, page: Page) -> List[dict]:
+    def _extract_download_links(self, page: Page) -> List[dict]:
           """
           Extrae los links de descarga de hackstore de forma interactiva.
           
