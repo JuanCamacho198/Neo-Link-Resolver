@@ -39,11 +39,16 @@ Crear un agente capaz de navegar desde un enlace "sucio" (lleno de ads/shortener
 - [x] Sistema de favoritos/historial de links resueltos.
 - [x] Exportar resultados a CSV/JSON.
 
-### Mes 2: "I Know Kung Fu" (Visión Computacional) 🟡
-- [ ] Integrar modelo de Visión (GPT-4o Vision o Local).
-- [ ] Implementar sistema de "Screenshot -> Analysis -> Action".
-- [ ] Entrenar/Promptear al modelo para distinguir botones reales de falsos ("Fake Download Buttons").
-- [ ] **Hito:** El agente identifica correctamente el botón "Ver Enlace" entre 5 botones falsos.
+### Mes 2: "I Know Kung Fu" (Visión Computacional) 🟡 (EN PROGRESO)
+- [x] Integrar modelo de Visión (GPT-4o Vision).
+- [x] Implementar sistema de "Screenshot -> Analysis -> Action" (`src/vision_analyzer.py`).
+- [x] Entrenar/Promptear al modelo para distinguir botones reales de falsos.
+- [x] Crear `VisionResolver` para navegación asistida por visión.
+- [x] Crear tests de visión (`tests/test_vision.py`).
+- [x] Documentación completa de Fase 2 (`docs/PHASE2_VISION.md`).
+- [ ] Integrar con adaptadores existentes (hackstore, peliculasgd).
+- [ ] Agregar opciones de visión a GUI.
+- [ ] **Hito:** El agente identifica correctamente el botón "Ver Enlace" entre 5 botones falsos (80%+ accuracy).
 
 ### Mes 3: Dodging Bullets (Evasión y Resiliencia) 🟠
 - [ ] Manejo de Pop-ups y nuevas pestañas (cerrarlas automáticamente).
