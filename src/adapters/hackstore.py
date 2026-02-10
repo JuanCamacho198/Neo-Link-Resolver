@@ -322,31 +322,14 @@ class HackstoreAdapter(SiteAdapter):
         Encuentra los botones de proveedor que aparecen después de hacer click en un heading.
         """
         try:
-            # Buscar el contenedor padre del heading
-            parent = heading_element.evaluate_handle("el => el.parentElement")
-            
-            # Buscar todos los botones/links dentro del padre o hermanos siguientes
-            # Típicamente están en <a>, <button>, o divs con clase específica
+            # Buscar todos los botones/links dentro de la página
             buttons = []
             
-            # Estrategia 1: Buscar en el siguiente elemento hermano
-            next_sibling = heading_element.evaluate_handle("el => el.nextElementSibling")
-            if next_sibling:
-                buttons_in_sibling = next_sibling.query_selector_all("a, button, [role='button']")
-                buttons.extend(buttons_in_sibling)
+            # Use evaluate to get button elements safely
+            button_elements = self._page.query_selector_all("a[href], button, [role='button']")
             
-            # Estrategia 2: Buscar en los siguientes elementos hermanos (hasta 3)
-            current = heading_element
-            for _ in range(3):
-                next_elem = current.evaluate_handle("el => el.nextElementSibling")
-                if next_elem:
-                    new_buttons = next_elem.query_selector_all("a, button, [role='button']")
-                    buttons.extend(new_buttons)
-                    current = next_elem
-            
-            # Estrategia 3: Buscar dentro del padre directo
-            parent_buttons = parent.query_selector_all("a, button, [role='button']")
-            buttons.extend(parent_buttons)
+            if button_elements:
+                buttons.extend(button_elements)
             
             # Filtrar botones relevantes (que contengan nombre de proveedor o texto de descarga)
             relevant_buttons = []

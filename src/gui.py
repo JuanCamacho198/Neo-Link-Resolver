@@ -372,77 +372,71 @@ def build_ui():
         # ============================================================
         # Handlers de eventos
         # ============================================================
-        def on_detect_click():
+        async def on_detect_click():
             """Click en Detectar Calidades"""
             if not url_input.value:
                 ui.notify('Por favor ingresa una URL', type='warning')
                 return
             
-            async def detect_task():
-                detect_progress_container.set_visibility(True)
-                detect_btn.disable()
-                
-                try:
-                    # Validar formato de URL
-                    url = url_input.value.strip()
-                    if not url.startswith("http://") and not url.startswith("https://"):
-                        ui.notify('URL debe comenzar con http:// o https://', type='warning')
-                        return
-                    
-                    detect_status.set_text('Navegando a la página...')
-                    detector = QualityDetector(headless=True)
-                    
-                    detect_status.set_text('Analizando estructura HTML...')
-                    qualities = detector.detect_qualities(url)
-                    
-                    if not qualities:
-                        ui.notify('No se detectaron calidades en la página', type='warning')
-                        return
-                    
-                    detect_status.set_text(f'Se detectaron {len(qualities)} calidades')
-                    
-                    # Actualizar opciones de calidad
-                    quality_options = {q["quality"]: f'{q["label"]}' for q in qualities}
-                    quality_select.options = quality_options
-                    quality_select.value = qualities[0]["quality"] if qualities else "1080p"
-                    
-                    ui.notify(f'✅ Se detectaron {len(qualities)} calidades!', type='positive')
-                    config_card.set_visibility(True)
-                    
-                except ValueError as e:
-                    ui.notify(f'URL inválida: {str(e)[:50]}', type='warning')
-                except Exception as e:
-                    error_msg = str(e)[:100]
-                    ui.notify(f'Error al detectar: {error_msg}', type='negative')
-                finally:
-                    detect_progress_container.set_visibility(False)
-                    detect_btn.enable()
+            detect_progress_container.set_visibility(True)
+            detect_btn.disable()
             
-            app.add_background_task(detect_task)
+            try:
+                # Validar formato de URL
+                url = url_input.value.strip()
+                if not url.startswith("http://") and not url.startswith("https://"):
+                    ui.notify('URL debe comenzar con http:// o https://', type='warning')
+                    return
+                
+                detect_status.set_text('Navegando a la página...')
+                detector = QualityDetector(headless=True)
+                
+                detect_status.set_text('Analizando estructura HTML...')
+                qualities = detector.detect_qualities(url)
+                
+                if not qualities:
+                    ui.notify('No se detectaron calidades en la página', type='warning')
+                    return
+                
+                detect_status.set_text(f'Se detectaron {len(qualities)} calidades')
+                
+                # Actualizar opciones de calidad
+                quality_options = {q["quality"]: f'{q["label"]}' for q in qualities}
+                quality_select.options = quality_options
+                quality_select.value = qualities[0]["quality"] if qualities else "1080p"
+                
+                ui.notify(f'✅ Se detectaron {len(qualities)} calidades!', type='positive')
+                config_card.set_visibility(True)
+                
+            except ValueError as e:
+                ui.notify(f'URL inválida: {str(e)[:50]}', type='warning')
+            except Exception as e:
+                error_msg = str(e)[:100]
+                ui.notify(f'Error al detectar: {error_msg}', type='negative')
+            finally:
+                detect_progress_container.set_visibility(False)
+                detect_btn.enable()
 
-        def on_resolve_click():
+        async def on_resolve_click():
             """Click en Resolver Link"""
             if not url_input.value:
                 ui.notify('Por favor ingresa una URL', type='warning')
                 return
             
-            async def resolve_task():
-                await resolve_link(
-                    url=url_input.value,
-                    quality=quality_select.value,
-                    format_type=format_select.value,
-                    providers=providers_select.value,
-                    log_area=log_area,
-                    logs_card=logs_card,
-                    result_card=result_card,
-                    resolve_btn=resolve_btn,
-                    resolve_progress_container=resolve_progress_container,
-                    resolve_status=resolve_status,
-                    screenshot_area=screenshot_area,
-                    screenshot_card=screenshot_card,
-                )
-            
-            app.add_background_task(resolve_task)
+            await resolve_link(
+                url=url_input.value,
+                quality=quality_select.value,
+                format_type=format_select.value,
+                providers=providers_select.value,
+                log_area=log_area,
+                logs_card=logs_card,
+                result_card=result_card,
+                resolve_btn=resolve_btn,
+                resolve_progress_container=resolve_progress_container,
+                resolve_status=resolve_status,
+                screenshot_area=screenshot_area,
+                screenshot_card=screenshot_card,
+            )
 
         # Asignar handlers
         detect_btn.on_click(on_detect_click)
