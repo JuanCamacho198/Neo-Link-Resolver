@@ -40,17 +40,17 @@ async def resolve_link(
     log_area,
     result_card,
     resolve_btn,
-    spinner,
+    resolve_progress_container,
+    resolve_status,
     screenshot_area,
 ):
     """
     Ejecuta la resolucion de forma asincrona y actualiza la UI.
     Incluye manejo robusto de errores.
     """
-    state.is_resolving = True
     state.result = None
     resolve_btn.disable()
-    spinner.set_visibility(True)
+    resolve_progress_container.set_visibility(True)
 
     # Limpiar areas
     log_area.clear()
@@ -96,6 +96,10 @@ async def resolve_link(
         }
         color = color_map.get(level, "grey-7")
 
+        # Actualizar estado también
+        if level in ["STEP", "INIT"]:
+            resolve_status.set_text(message[:100])
+
         # Agregar log a la UI
         with log_area:
             ui.label(message).classes(f'text-{color} text-xs font-mono')
@@ -125,9 +129,8 @@ async def resolve_link(
 
     # Actualizar resultado
     state.result = result
-    state.is_resolving = False
     resolve_btn.enable()
-    spinner.set_visibility(False)
+    resolve_progress_container.set_visibility(False)
 
     # Mostrar resultado
     result_card.clear()
@@ -199,7 +202,7 @@ def build_ui():
         with ui.row().classes('items-center gap-3'):
             ui.label('🕶️').classes('text-3xl')
             ui.label('Neo-Link-Resolver').classes('text-h5 text-white font-bold')
-        ui.label('v0.4.1').classes('text-white text-sm')
+        ui.label('v0.4.4').classes('text-white text-sm')
 
     # Container principal
     with ui.column().classes('w-full max-w-6xl mx-auto p-6 gap-6'):
@@ -215,21 +218,35 @@ def build_ui():
         with ui.card().classes('w-full'):
             ui.label('Paso 1: URL y Detectar').classes('text-h6 mb-4')
             
-            with ui.row().classes('w-full gap-2'):
-                # URL input
-                url_input = ui.input(
-                    label='URL',
-                    placeholder='https://hackstore.mx/peliculas/matrix-1999',
-                ).classes('flex-grow').props('outlined clearable')
+            with ui.column().classes('w-full gap-3'):
+                # Row con URL input y boton
+                with ui.row().classes('w-full gap-2'):
+                    # URL input
+                    url_input = ui.input(
+                        label='URL',
+                        placeholder='https://hackstore.mx/peliculas/matrix-1999',
+                    ).classes('flex-grow').props('outlined clearable')
+                    
+                    detect_btn = ui.button(
+                        'Detectar Calidades',
+                        icon='auto_awesome',
+                    ).props('outline color=primary')
                 
-                # Spinner y boton detectar
-                detect_spinner = ui.spinner(size='sm', color='primary')
-                detect_spinner.set_visibility(False)
+                # Contenedor para el progreso (oculto al inicio)
+                detect_progress_container = ui.column().classes('w-full')
+                detect_progress_container.set_visibility(False)
                 
-                detect_btn = ui.button(
-                    'Detectar Calidades',
-                    icon='auto_awesome',
-                ).props('outline color=primary')
+                with detect_progress_container:
+                    # Spinner grande y visible
+                    with ui.row().classes('items-center gap-3 w-full'):
+                        detect_spinner = ui.spinner(size='lg', color='primary')
+                        ui.label('Detectando calidades...').classes('text-primary font-bold')
+                    
+                    # Barra de progreso indeterminada
+                    detect_progress_bar = ui.linear_progress(value=0).props('indeterminate').classes('w-full')
+                    
+                    # Mensaje de estado
+                    detect_status = ui.label('Navegando a la página...').classes('text-grey-7 text-sm mt-2')
 
         # ============================================================
         # PASO 2: Seleccionar preferencias (oculto al inicio)
@@ -270,15 +287,28 @@ def build_ui():
                 multiple=True,
             ).classes('w-full mt-4').props('outlined')
 
-            # Boton resolver
+            # Boton resolver y progreso
             with ui.row().classes('w-full justify-end gap-2 mt-6'):
-                resolve_spinner = ui.spinner(size='sm', color='primary')
-                resolve_spinner.set_visibility(False)
-                
                 resolve_btn = ui.button(
                     'Resolver Link',
                     icon='smart_toy',
                 ).props('size=lg color=positive')
+            
+            # Contenedor de progreso para resolver (oculto al inicio)
+            resolve_progress_container = ui.column().classes('w-full')
+            resolve_progress_container.set_visibility(False)
+            
+            with resolve_progress_container:
+                # Barra de progreso y spinner
+                with ui.row().classes('items-center gap-3 w-full mb-3'):
+                    ui.spinner(size='lg', color='positive')
+                    ui.label('Resolviendo link...').classes('text-positive font-bold')
+                
+                # Barra de progreso indeterminada
+                ui.linear_progress(value=0).props('indeterminate').classes('w-full mb-2')
+                
+                # Mensaje de estado
+                resolve_status = ui.label('Iniciando navegador...').classes('text-grey-7 text-sm')
 
         # ============================================================
         # Area de visualizacion (screenshots)
@@ -326,7 +356,7 @@ def build_ui():
                 return
             
             async def detect_task():
-                detect_spinner.set_visibility(True)
+                detect_progress_container.set_visibility(True)
                 detect_btn.disable()
                 
                 try:
@@ -336,19 +366,24 @@ def build_ui():
                         ui.notify('URL debe comenzar con http:// o https://', type='warning')
                         return
                     
+                    detect_status.set_text('Navegando a la página...')
                     detector = QualityDetector(headless=True)
+                    
+                    detect_status.set_text('Analizando estructura HTML...')
                     qualities = detector.detect_qualities(url)
                     
                     if not qualities:
                         ui.notify('No se detectaron calidades en la página', type='warning')
                         return
                     
+                    detect_status.set_text(f'Se detectaron {len(qualities)} calidades')
+                    
                     # Actualizar opciones de calidad
                     quality_options = {q["quality"]: f'{q["label"]}' for q in qualities}
                     quality_select.options = quality_options
                     quality_select.value = qualities[0]["quality"] if qualities else "1080p"
                     
-                    ui.notify(f'Se detectaron {len(qualities)} calidades!', type='positive')
+                    ui.notify(f'✅ Se detectaron {len(qualities)} calidades!', type='positive')
                     config_card.set_visibility(True)
                     
                 except ValueError as e:
@@ -357,7 +392,7 @@ def build_ui():
                     error_msg = str(e)[:100]
                     ui.notify(f'Error al detectar: {error_msg}', type='negative')
                 finally:
-                    detect_spinner.set_visibility(False)
+                    detect_progress_container.set_visibility(False)
                     detect_btn.enable()
             
             app.add_background_task(detect_task)
@@ -377,7 +412,8 @@ def build_ui():
                     log_area=log_area,
                     result_card=result_card,
                     resolve_btn=resolve_btn,
-                    spinner=resolve_spinner,
+                    resolve_progress_container=resolve_progress_container,
+                    resolve_status=resolve_status,
                     screenshot_area=screenshot_area,
                 )
             
