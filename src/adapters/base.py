@@ -4,7 +4,7 @@ Cada sitio tiene su propio adaptador que sabe como navegar y extraer links.
 """
 
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Optional
 from playwright.sync_api import Page, BrowserContext
 from config import SearchCriteria
 from matcher import LinkOption
@@ -19,6 +19,15 @@ class SiteAdapter(ABC):
     def __init__(self, context: BrowserContext, criteria: SearchCriteria):
         self.context = context
         self.criteria = criteria
+        self.network_analyzer = None
+        self.dom_analyzer = None
+        self.timer_interceptor = None
+
+    def set_analyzers(self, network_analyzer=None, dom_analyzer=None, timer_interceptor=None):
+        """Asigna los analizadores para uso en el adaptador."""
+        self.network_analyzer = network_analyzer
+        self.dom_analyzer = dom_analyzer
+        self.timer_interceptor = timer_interceptor
 
     @abstractmethod
     def can_handle(self, url: str) -> bool:

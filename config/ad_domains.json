@@ -1,0 +1,43 @@
+{
+  "ad_domains": [
+    "doubleclick.net",
+    "googlesyndication.com",
+    "adservice.google.com",
+    "amazon-adsystem.com",
+    "clickadu.com",
+    "popads.net",
+    "propellerads.com",
+    "exoclick.com",
+    "adsterra.com",
+    "hilltopads.net",
+    "trafficjunky.com",
+    "onclickads.net",
+    "a-ads.com",
+    "adform.net",
+    "adnxs.com",
+    "impactify.io",
+    "mgid.com",
+    "outbrain.com",
+    "taboola.com",
+    "yandex.ru/ads",
+    "zedo.com"
+  ],
+  "download_domains": [
+    "mega.nz",
+    "mega.co.nz",
+    "mega.io",
+    "drive.google.com",
+    "docs.google.com",
+    "mediafire.com",
+    "1fichier.com",
+    "gofile.io",
+    "uptobox.com",
+    "rapidgator.net",
+    "dropbox.com",
+    "zippyshare.com",
+    "shared.com",
+    "terabox.com",
+    "send.cm",
+    "pixeldrain.com"
+  ]
+}

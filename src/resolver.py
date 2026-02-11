@@ -11,6 +11,9 @@ from matcher import LinkOption
 from logger import get_logger
 from screenshot_handler import ScreenshotHandler
 from history_manager import HistoryManager
+from network_analyzer import NetworkAnalyzer
+from dom_analyzer import DOMAnalyzer
+from timer_interceptor import TimerInterceptor
 import time
 
 
@@ -27,6 +30,8 @@ class LinkResolver:
         self.screenshot_handler = ScreenshotHandler(callback=screenshot_callback)
         self.max_retries = max_retries
         self.history_manager = HistoryManager()
+        self.use_network_interception = True
+        self.accelerate_timers = True
 
     def resolve(
         self,
@@ -136,8 +141,19 @@ class LinkResolver:
                     original_log = adapter.log
                     def patched_log(step, msg):
                         self.logger.step(step, msg)
-                        original_log(step, msg)
+                        # original_log(step, msg) - No duplicar en stdout
                     adapter.log = patched_log
+
+                    # Configurar Network / DOM / Timer Analyzers
+                    network_analyzer = NetworkAnalyzer()
+                    dom_analyzer = DOMAnalyzer()
+                    timer_interceptor = TimerInterceptor()
+                    
+                    adapter.set_analyzers(
+                        network_analyzer=network_analyzer,
+                        dom_analyzer=dom_analyzer,
+                        timer_interceptor=timer_interceptor
+                    )
 
                     # Resolver
                     self.logger.step("RESOLVE", "Starting navigation...")
@@ -146,6 +162,12 @@ class LinkResolver:
                     except Exception as e:
                         self.logger.error(f"Adapter resolution failed: {e}")
                         return None
+
+                    # Mostrar estadísticas de interceptación si se usaron
+                    stats = network_analyzer.get_stats()
+                    if stats['intercepted'] > 0:
+                        self.logger.info(f"Network: {stats['blocked']} blocked ads")
+                        self.logger.info(f"Captured: {stats['captured']} download candidates")
 
                     if result:
                         self.logger.success("Link resolved successfully!")

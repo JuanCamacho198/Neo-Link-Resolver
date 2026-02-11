@@ -127,6 +127,11 @@ class HackstoreAdapter(SiteAdapter):
         page = None
         try:
             page = self.context.new_page()
+            
+            # Activar Network Interceptor
+            if self.network_analyzer:
+                self.network_analyzer.setup_network_interception(page, block_ads=True)
+                
         except Exception as e:
             self.log("ERROR", f"Failed to create new page: {e}")
             return None
@@ -340,21 +345,30 @@ class HackstoreAdapter(SiteAdapter):
                               self.log("EXTRACT", f"    Clicking provider: {provider_name}")
                               
                               # Hacer click en el botón del proveedor
-                              # Usar una estrategia de seguimiento de respuesta para capturar la URL
-                              try:
-                                  page.on("response", lambda response: self._capture_redirect_url(response, quality_text, provider_name, links))
-                              except Exception as e:
-                                  self.log("WARNING", f"Failed to register response listener: {e}")
-                              
                               try:
                                   provider_button.click()
                               except Exception as e:
                                   self.log("WARNING", f"Failed to click provider button: {e}")
                                   continue
                               
-                              random_delay(1.0, 2.0)
+                              random_delay(1.5, 3.0)
                               
-                              # Intentar obtener la URL actual (podría haber sido redirigida)
+                              # Verificar si el NetworkAnalyzer capturó algo
+                              if self.network_analyzer and self.network_analyzer.captured_links:
+                                  for captured in self.network_analyzer.captured_links:
+                                      if self.network_analyzer.is_download_url(captured['url']):
+                                          links.append(LinkOption(
+                                              url=captured['url'],
+                                              text=f"{quality_text} {provider_name}",
+                                              provider=provider_name,
+                                              quality=quality_text,
+                                              score=0 # Se calculará después
+                                          ))
+                                          # Limpiar capturas una vez procesadas para evitar duplicados en la siguiente calidad
+                                          self.network_analyzer.captured_links = []
+                                          break
+                              
+                              # Fallback: Intentar obtener la URL actual (podría haber sido redirigida)
                               try:
                                   current_url = page.url
                                   if current_url and not current_url.startswith("https://hackstore.mx"):

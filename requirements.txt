@@ -6,8 +6,8 @@ playwright>=1.40.0
 # Stealth mode for anti-detection (optional, for future)
 # playwright-stealth>=0.1.0
 
-# AI/Vision (FASE 2: Visión Computacional)
-openai>=1.0.0
+# AI/Vision (FASE 2: Visión Computacional - DESACTIVADO)
+# openai>=1.0.0
 
 # LangGraph for state machine orchestration (future)
 # langgraph>=0.0.1

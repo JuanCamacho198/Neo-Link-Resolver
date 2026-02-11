@@ -33,6 +33,10 @@ class PeliculasGDAdapter(SiteAdapter):
         """
         page = self.context.new_page()
 
+        # Activar Network Interceptor si está disponible
+        if self.network_analyzer:
+            self.network_analyzer.setup_network_interception(page, block_ads=True)
+
         try:
             # Step 0: Abrir pagina de pelicula
             self.log("INIT", f"Opening {url[:60]}...")
@@ -248,17 +252,32 @@ class PeliculasGDAdapter(SiteAdapter):
         random_delay(2.0, 4.0)
         self._close_unwanted_popups([page])
 
+        # Aceleración de Timer (Novedad)
+        if self.timer_interceptor:
+            self.timer_interceptor.accelerate_timers(page)
+            self.timer_interceptor.skip_peliculasgd_timer(page)
+            wait_time = AD_WAIT_SECONDS // 5  # Reducir espera 5 veces
+        else:
+            wait_time = AD_WAIT_SECONDS
+
         # Esperar
-        self.log("STEP6", f"Waiting {AD_WAIT_SECONDS}s for ad timer...")
+        self.log("STEP6", f"Waiting {wait_time}s for ad timer (accelerated)...")
         elapsed = 0
-        while elapsed < AD_WAIT_SECONDS:
-            chunk = min(10, AD_WAIT_SECONDS - elapsed)
+        while elapsed < wait_time:
+            chunk = min(5, wait_time - elapsed)
             time.sleep(chunk)
             elapsed += chunk
-            if elapsed < AD_WAIT_SECONDS:
-                human_mouse_move(page, steps=2)
+            if elapsed < wait_time:
+                human_mouse_move(page, steps=1)
 
     def _step7_return_to_intermediate(self) -> str:
+        # Prioridad 1: Ver si el NetworkAnalyzer ya lo capturó
+        if self.network_analyzer and self.network_analyzer.captured_links:
+            best = self.network_analyzer.get_best_link()
+            if best:
+                self.log("STEP7", "Found link in network traffic interception!")
+                return best
+
         self.log("STEP7", "Returning to intermediate page...")
         intermediate_page = None
         for p in self.context.pages:

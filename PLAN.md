@@ -39,22 +39,29 @@ Crear un agente capaz de navegar desde un enlace "sucio" (lleno de ads/shortener
 - [x] Sistema de favoritos/historial de links resueltos.
 - [x] Exportar resultados a CSV/JSON.
 
-### Mes 2: "I Know Kung Fu" (Visión Computacional) 🟡 (EN PROGRESO)
+### Mes 2: Dodging Bullets (Network Interception & Ad Evasion) 🔵 (EN PROGRESO)
+- [x] Implementar `NetworkAnalyzer` para bloqueo de ads y captura de redirects.
+- [x] Implementar `DOMAnalyzer` para heurísticas de botones (reemplaza Visión por IA).
+- [x] Implementar `TimerInterceptor` para acelerar esperas obligatorias (45s -> 5s).
+- [x] Integrar interceptación en adaptadores (`peliculasgd`, `hackstore`).
+- [x] Panel de configuración de interceptación en GUI.
+- [ ] **Hito:** Resolver links en `peliculasgd.net` en menos de 20 segundos ignorando anuncios.
+
+### Mes 2.5: "I Know Kung Fu" (Visión Computacional) 🟡 (DESACTIVADO)
 - [x] Integrar modelo de Visión (GPT-4o Vision).
 - [x] Implementar sistema de "Screenshot -> Analysis -> Action" (`src/vision_analyzer.py`).
 - [x] Entrenar/Promptear al modelo para distinguir botones reales de falsos.
 - [x] Crear `VisionResolver` para navegación asistida por visión.
 - [x] Crear tests de visión (`tests/test_vision.py`).
 - [x] Documentación completa de Fase 2 (`docs/PHASE2_VISION.md`).
-- [ ] Integrar con adaptadores existentes (hackstore, peliculasgd).
-- [ ] Agregar opciones de visión a GUI.
+- [ ] Integrar con adaptadores existentes como fallback.
+- [ ] Agregar opciones de visión a GUI si es necesario.
 - [ ] **Hito:** El agente identifica correctamente el botón "Ver Enlace" entre 5 botones falsos (80%+ accuracy).
 
-### Mes 3: Dodging Bullets (Evasión y Resiliencia) 🟠
+### Mes 3: Dodging Bullets (Resiliencia Avanzada) 🟠
 - [ ] Manejo de Pop-ups y nuevas pestañas (cerrarlas automáticamente).
-- [ ] Espera inteligente de contadores (timers de 5-10s).
 - [ ] Implementar `playwright-stealth` para evitar ser baneado.
-- [ ] **Hito:** Navegación completa exitosa en el 80% de los intentos en `peliculasgd.net`.
+- [ ] **Hito:** Navegación completa exitosa en el 90% de los intentos en `peliculasgd.net`.
 
 ### Mes 4: The Operator (API & Architecture) 🔵
 - [ ] Envolver el agente en una API REST con FastAPI.

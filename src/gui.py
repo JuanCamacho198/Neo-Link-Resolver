@@ -33,6 +33,11 @@ class AppState:
         self.result: Optional[LinkOption] = None
         self.history_manager = HistoryManager()
         self.current_filter = "all"  # all, favorites
+        
+        # Network Interception Settings
+        self.block_ads = True
+        self.speed_up_timers = True
+        self.network_stats = {"blocked": 0, "captured": 0}
 
 
 state = AppState()
@@ -215,7 +220,16 @@ async def resolve_link(
     def run_resolver():
         try:
             resolver = LinkResolver(headless=False, screenshot_callback=screenshot_callback)
-            return resolver.resolve(url, quality, format_type, providers)
+            
+            # Aplicar configuraciones de interceptación
+            resolver.use_network_interception = state.block_ads
+            resolver.accelerate_timers = state.speed_up_timers
+            
+            result = resolver.resolve(url, quality, format_type, providers)
+            
+            # Capturar estadísticas finales si el resolver las expone o si hay acceso al network_analyzer
+            # Nota: En una implementación más robusta usaríamos un callback para stats periódicos
+            return result
         except Exception as e:
             logger.log("ERROR", f"Resolver exception: {str(e)[:100]}")
             return None
@@ -386,6 +400,29 @@ def build_resolver_tab():
                     
                     # Mensaje de estado
                     detect_status = ui.label('Navegando a la página...').classes('text-grey-7 text-sm mt-2')
+
+        # ============================================================
+        # PASO OPCIONAL: Network Interception Configuration
+        # ============================================================
+        with ui.card().classes('w-full border-l-4 border-blue'):
+            with ui.row().classes('items-center justify-between w-full'):
+                with ui.row().classes('items-center gap-2'):
+                    ui.icon('bolt', color='blue', size='md')
+                    ui.label('Network Interception (Auto-Evasión)').classes('text-h6')
+                
+                ui.badge('EXPERIMENTAL', color='blue')
+            
+            with ui.row().classes('w-full gap-8 mt-2'):
+                ui.switch('Bloquear Anuncios', value=state.block_ads).bind_value(state, 'block_ads').tooltip('Bloquea dominios conocidos de publicidad')
+                ui.switch('Acelerar Timers', value=state.speed_up_timers).bind_value(state, 'speed_up_timers').tooltip('Acelera los contadores de espera interrumpiendo setTimeout/setInterval')
+            
+            # Stats Panel (Visible cuando hay actividad)
+            with ui.row().classes('w-full mt-4 p-2 bg-blue-50 rounded hidden') as stats_panel:
+                ui.label('Ads Bloqueados:').classes('text-sm font-bold')
+                ui.label('0').bind_text_from(state.network_stats, 'blocked').classes('text-sm')
+                ui.label('|').classes('mx-2 text-blue-200')
+                ui.label('Links Capturados:').classes('text-sm font-bold')
+                ui.label('0').bind_text_from(state.network_stats, 'captured').classes('text-sm')
 
         # ============================================================
         # PASO 2: Seleccionar calidad y proveedores (oculto al inicio)
