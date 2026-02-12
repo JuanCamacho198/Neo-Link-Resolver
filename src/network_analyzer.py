@@ -177,11 +177,42 @@ class NetworkAnalyzer:
             return []
 
     def get_best_link(self) -> Optional[str]:
-        """Retorna el link con mayor probabilidad de ser el correcto."""
+        """Retorna el link con mayor probabilidad de ser el correcto, usando scoring."""
         if not self.captured_links:
             return None
-        # Por ahora el último capturado suele ser el más específico
-        return self.captured_links[-1]['url']
+
+        best_link = None
+        max_score = -1
+
+        for link_data in self.captured_links:
+            url = link_data['url']
+            score = 0
+
+            # Preferir dominios de descarga conocidos
+            if self.is_download_url(url):
+                score += 10
+
+            # Preferir proveedores especificos de alta calidad
+            if "drive.google.com" in url:
+                score += 5
+            elif "mega.nz" in url or "mega.io" in url:
+                score += 5
+            elif "mediafire.com" in url:
+                score += 4
+            elif "1fichier.com" in url:
+                score += 3
+            elif "gofile.io" in url:
+                score += 3
+
+            # Preferir capturas recientes
+            score += (link_data['timestamp'] % 100) / 1000  # Tiny bias for timestamp
+
+            if score > max_score:
+                max_score = score
+                best_link = url
+
+        # Fallback al ultimo si empate o score bajo
+        return best_link if best_link else self.captured_links[-1]['url']
 
     def get_stats(self) -> Dict:
         """Estadísticas para la GUI."""

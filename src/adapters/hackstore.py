@@ -357,13 +357,13 @@ class HackstoreAdapter(SiteAdapter):
                               if self.network_analyzer and self.network_analyzer.captured_links:
                                   for captured in self.network_analyzer.captured_links:
                                       if self.network_analyzer.is_download_url(captured['url']):
-                                          links.append(LinkOption(
-                                              url=captured['url'],
-                                              text=f"{quality_text} {provider_name}",
-                                              provider=provider_name,
-                                              quality=quality_text,
-                                              score=0 # Se calculará después
-                                          ))
+                                          links.append({
+                                              "url": captured['url'],
+                                              "text": f"{quality_text} {provider_name}",
+                                              "provider": provider_name,
+                                              "quality": quality_text
+                                              # Score will be calculated later
+                                          })
                                           # Limpiar capturas una vez procesadas para evitar duplicados en la siguiente calidad
                                           self.network_analyzer.captured_links = []
                                           break
@@ -429,7 +429,7 @@ class HackstoreAdapter(SiteAdapter):
             buttons = []
             
             # Use evaluate to get button elements safely
-            button_elements = self._page.query_selector_all("a[href], button, [role='button']")
+            button_elements = page.query_selector_all("a[href], button, [role='button']")
             
             if button_elements:
                 buttons.extend(button_elements)
@@ -439,9 +439,25 @@ class HackstoreAdapter(SiteAdapter):
             for btn in buttons:
                 try:
                     text = btn.inner_text().strip().lower()
-                    if any(word in text for word in ["descargar", "download", "mega", "mediafire", "utorrent", "drive", "dropbox"]):
-                        relevant_buttons.append(btn)
-                except:
+                    is_relevant_text = any(word in text for word in ["descargar", "download", "mega", "mediafire", "utorrent", "drive", "dropbox"])
+                    
+                    if not is_relevant_text:
+                        continue
+
+                    # INTEGRACION DOM ANALYZER
+                    if self.dom_analyzer:
+                        features = self.dom_analyzer.get_element_features(btn)
+                        if features:
+                            score = self.dom_analyzer.calculate_realness_score(features)
+                            if score < 0.4:  # Umbral para filtrar falsos
+                                self.log("DOM", f"Filtered weak button (score {score:.2f}): {text[:20]}")
+                                continue
+                            else:
+                                self.log("DOM", f"Kept strong button (score {score:.2f}): {text[:20]}")
+                    
+                    relevant_buttons.append(btn)
+                except Exception as e:
+                    self.log("WARNING", f"Error analyzing button: {e}")
                     continue
             
             return relevant_buttons if relevant_buttons else buttons
@@ -516,12 +532,11 @@ class HackstoreAdapter(SiteAdapter):
                 found_providers = ["mediafire"]
             
             # Generar links representativos
-            for quality in found_qualities:
-                for provider in found_providers:
-                    links.append({
-                        "url": f"https://hackstore.mx/download/{quality.replace(' ', '-')}/{provider.split('.')[0]}",
-                        "text": f"{quality} - {provider}"
-                    })
+            # NOTA: Fallback eliminado para evitar URLs falsas
+            # Solo debemos retornar links si realmente encontramos URLs válidas.
+            
+            # Buscar links 'a' reales si no hemos encontrado nada específico
+            # TODO: Implementar un parser HTML ligero aquí si es necesario
         
         except Exception as e:
             self.log("ERROR", f"Error in fallback extraction: {e}")

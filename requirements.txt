@@ -2,6 +2,7 @@
 
 # Core Browser Automation
 playwright>=1.40.0
+playwright-stealth>=0.1.0
 
 # Stealth mode for anti-detection (optional, for future)
 # playwright-stealth>=0.1.0

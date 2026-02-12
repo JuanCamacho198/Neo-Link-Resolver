@@ -320,7 +320,7 @@ class PeliculasGDAdapter(SiteAdapter):
                     return href
 
         intermediate_page.screenshot(path="peliculasgd_final_debug.png")
-        return "LINK_NOT_RESOLVED"
+        return None
 
     def _close_unwanted_popups(self, keep_pages: List[Page]):
         for p in self.context.pages:
