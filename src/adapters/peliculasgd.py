@@ -319,7 +319,30 @@ class PeliculasGDAdapter(SiteAdapter):
                     self.log("STEP7", f"Found: {href[:100]}")
                     return href
 
+        # FALLBACK VISION: Si no encontramos link en el DOM
+        if self.vision_resolver:
+            self.log("VISION", "DOM search failed - activating Vision fallback...")
+            try:
+                vision_analysis = self.vision_resolver.analyze_page_sync(intermediate_page)
+                if vision_analysis:
+                    best_button = self.vision_resolver.find_best_button(vision_analysis)
+                    if best_button:
+                        # Intentar extraer URL del botón
+                        text = best_button.get('text', '').lower()
+                        if any(provider in text for provider in ['mega', 'drive', 'mediafire']):
+                            if self.vision_resolver.click_button_from_analysis(intermediate_page, best_button):
+                                random_delay(1.0, 2.0)
+                                # Verificar network analyzer
+                                if self.network_analyzer and self.network_analyzer.captured_links:
+                                    best = self.network_analyzer.get_best_link()
+                                    if best:
+                                        self.log("VISION", f"Captured via Vision: {best[:80]}")
+                                        return best
+            except Exception as vision_error:
+                self.log("WARNING", f"Vision fallback failed: {vision_error}")
+
         intermediate_page.screenshot(path="peliculasgd_final_debug.png")
+        self.log("ERROR", "Could not find download link - check peliculasgd_final_debug.png")
         return None
 
     def _close_unwanted_popups(self, keep_pages: List[Page]):

@@ -14,6 +14,8 @@ from history_manager import HistoryManager
 from network_analyzer import NetworkAnalyzer
 from dom_analyzer import DOMAnalyzer
 from timer_interceptor import TimerInterceptor
+from stealth_config import apply_stealth_to_context, setup_popup_handler, STEALTH_AVAILABLE
+from vision_fallback import VisionFallback
 import time
 
 
@@ -32,6 +34,7 @@ class LinkResolver:
         self.history_manager = HistoryManager()
         self.use_network_interception = True
         self.accelerate_timers = True
+        self.use_vision_fallback = True  # Activar Vision como fallback
 
     def resolve(
         self,
@@ -121,6 +124,15 @@ class LinkResolver:
                             "Chrome/120.0.0.0 Safari/537.36"
                         ),
                     )
+                    
+                    # Aplicar configuración anti-detección
+                    if STEALTH_AVAILABLE:
+                        self.logger.info("Applying stealth mode...")
+                        apply_stealth_to_context(context)
+                    
+                    # Configurar manejo automático de popups
+                    setup_popup_handler(context, auto_close=True)
+                    
                 except Exception as e:
                     self.logger.error(f"Failed to create browser context: {e}")
                     if browser:
@@ -147,11 +159,13 @@ class LinkResolver:
                     # Configurar Network / DOM / Timer Analyzers
                     network_analyzer = NetworkAnalyzer()
                     dom_analyzer = DOMAnalyzer()
-                    timer_interceptor = TimerInterceptor()
+                    vision_fallback = VisionFallback() if self.use_vision_fallback else None
                     
                     adapter.set_analyzers(
                         network_analyzer=network_analyzer,
                         dom_analyzer=dom_analyzer,
+                        timer_interceptor=timer_interceptor,
+                        vision_resolver=vision_fallback
                         timer_interceptor=timer_interceptor
                     )
 

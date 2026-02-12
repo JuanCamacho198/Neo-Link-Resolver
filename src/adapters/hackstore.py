@@ -400,6 +400,35 @@ class HackstoreAdapter(SiteAdapter):
               if not links:
                   self.log("EXTRACT", "No links found interactively, using fallback HTML search...")
                   links = self._extract_links_fallback(html_content, providers_all)
+              
+              # FALLBACK VISION: Si aún no hay links Y vision está disponible
+              if not links and self.vision_resolver:
+                  self.log("VISION", "Activating Vision fallback to identify download buttons...")
+                  try:
+                      vision_analysis = self.vision_resolver.analyze_page_sync(page)
+                      if vision_analysis:
+                          best_button = self.vision_resolver.find_best_button(vision_analysis)
+                          if best_button:
+                              # Intentar click en el botón identificado por Vision
+                              if self.vision_resolver.click_button_from_analysis(page, best_button):
+                                  random_delay(2.0, 4.0)
+                                  # Verificar si se capturó algo en la red
+                                  if self.network_analyzer and self.network_analyzer.captured_links:
+                                      for captured in self.network_analyzer.captured_links:
+                                          links.append({
+                                              "url": captured['url'],
+                                              "text": best_button.get('text', 'Vision-detected button')
+                                          })
+                                  else:
+                                      # Verificar URL actual
+                                      current_url = page.url
+                                      if current_url and "hackstore.mx" not in current_url:
+                                          links.append({
+                                              "url": current_url,
+                                              "text": best_button.get('text', 'Vision-detected button')
+                                          })
+                  except Exception as vision_error:
+                      self.log("WARNING", f"Vision fallback failed: {vision_error}")
           
           except Exception as e:
               self.log("ERROR", f"Exception in _extract_download_links: {e}")
