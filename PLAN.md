@@ -61,7 +61,7 @@ Crear un agente capaz de navegar desde un enlace "sucio" (lleno de ads/shortener
 ### Mes 3: Dodging Bullets (Resiliencia Avanzada) 🟠
 - [ ] Manejo de Pop-ups y nuevas pestañas (cerrarlas automáticamente).
 - [ ] Implementar `playwright-stealth` para evitar ser baneado.
-- [ ] **Hito:** Navegación completa exitosa en el 90% de los intentos en `peliculasgd.net`.
+- [ ] **Hito:** Navegación completa exitosa en el 90% de los intentos en `peliculasgd.net` y en `hackstore.mx`.
 
 ### Mes 4: The Operator (API & Architecture) 🔵
 - [ ] Envolver el agente en una API REST con FastAPI.

@@ -6,9 +6,17 @@ Ejecutar:
 
 Abre un navegador con la interfaz en http://localhost:8081
 """
-
 import sys
 import os
+import asyncio
+
+# FIX para Python 3.13 + Windows + NiceGUI hang
+# Forzamos el uso de SelectorEventLoopPolicy que es más estable para servidores web en Windows
+if sys.platform == 'win32':
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except Exception as e:
+        print(f"Warning: Could not set event loop policy: {e}")
 
 # Agregar el directorio actual (src) al path para imports relativos
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -726,13 +734,17 @@ def build_history_tab():
 @ui.page('/')
 def main_page():
     print("Nueva conexión recibida, construyendo UI...")
-    ui.label('Conectando con el servidor...').classes('text-grey-5 p-4')
     try:
+        # build_ui crea su propio ui.header y ui.footer, que NO pueden estar dentro
+        # de un ui.column() genérico como intentamos antes.
+        # Quitamos el ui.column() envolvente para evitar el RuntimeError.
         build_ui()
         print("UI construida exitosamente.")
     except Exception as e:
         print(f"Error construyendo UI: {e}")
-        ui.label(f"Error fatal al cargar la interfaz: {e}")
+        import traceback
+        traceback.print_exc()
+        ui.label(f"Error fatal al cargar la interfaz: {e}").classes('text-negative p-4')
 
 if __name__ in {"__main__", "__mp_main__"}:
     import os
@@ -750,15 +762,15 @@ if __name__ in {"__main__", "__mp_main__"}:
     except Exception as e:
         print(f"Warning: Could not add static files: {e}")
     
-    print("Lanzando servidor en http://127.0.0.1:8083 ...")
+    PORT = 8088
+    print(f"Lanzando servidor en http://127.0.0.1:{PORT} ...")
     
-    # Ejecutar servidor con configuraciones de robustez
+    # Ejecutar servidor con configuración estándar y segura
     ui.run(
         title='Neo-Link-Resolver',
-        host='127.0.0.1',
-        port=8083,
-        reload=False,
+        host='127.0.0.1', 
+        port=PORT,
+        reload=False,     # Importante para evitar bucles en Windows
         dark=True,
-        show=True,
-        favicon='🕶️',
+        show=False,       # Desactivamos auto-apertura para evitar condiciones de carrera
     )

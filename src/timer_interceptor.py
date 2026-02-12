@@ -72,7 +72,7 @@ class TimerInterceptor:
             // 2. Buscar elementos del DOM que parecen contadores y forzarlos
             const timerEls = document.querySelectorAll('.timer, #timer, #counter, .countdown');
             timerEls.forEach(el => {
-                if (el.innerText.match(/\d+/)) {
+                if (el.innerText.match(/\\d+/)) {
                     el.innerText = '0';
                 }
             });
