@@ -69,8 +69,9 @@ class HistoryManager:
     
     def _init_db(self):
         """Inicializa la BD y crea tablas si no existen"""
+        print(f"Inicializando base de datos en: {self.db_path}")
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, timeout=5) as conn:
                 cursor = conn.cursor()
                 
                 # Crear tabla de historial
@@ -91,6 +92,7 @@ class HistoryManager:
                 """)
                 
                 conn.commit()
+            print("Base de datos inicializada correctamente.")
         except Exception as e:
             print(f"Error initializing database: {e}")
     

@@ -13,14 +13,17 @@ import os
 # Agregar el directorio actual (src) al path para imports relativos
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+print("Importando dependencias...")
 from nicegui import ui, app
 import asyncio
 from typing import Optional, List, Dict
+print("Importando resolver...")
 from resolver import LinkResolver
 from logger import get_logger
 from matcher import LinkOption
 from quality_detector import QualityDetector
 from history_manager import HistoryManager, ResolutionRecord
+print("Dependencias cargadas.")
 
 
 # =============================================================================
@@ -720,8 +723,21 @@ def build_history_tab():
 # =============================================================================
 # Punto de entrada
 # =============================================================================
+@ui.page('/')
+def main_page():
+    print("Nueva conexión recibida, construyendo UI...")
+    ui.label('Conectando con el servidor...').classes('text-grey-5 p-4')
+    try:
+        build_ui()
+        print("UI construida exitosamente.")
+    except Exception as e:
+        print(f"Error construyendo UI: {e}")
+        ui.label(f"Error fatal al cargar la interfaz: {e}")
+
 if __name__ in {"__main__", "__mp_main__"}:
     import os
+    
+    print("Iniciando aplicación...")
     
     # Crear directorio de screenshots si no existe
     screenshots_dir = os.path.join(os.path.dirname(__file__), '..', 'screenshots')
@@ -730,17 +746,19 @@ if __name__ in {"__main__", "__mp_main__"}:
     # Configurar NiceGUI
     try:
         app.add_static_files('/screenshots', screenshots_dir)
+        print(f"Archivos estáticos configurados en: {screenshots_dir}")
     except Exception as e:
         print(f"Warning: Could not add static files: {e}")
     
-    # Construir UI
-    build_ui()
-
-    # Ejecutar servidor
+    print("Lanzando servidor en http://127.0.0.1:8083 ...")
+    
+    # Ejecutar servidor con configuraciones de robustez
     ui.run(
         title='Neo-Link-Resolver',
-        port=8081,
+        host='127.0.0.1',
+        port=8083,
         reload=False,
+        dark=True,
         show=True,
         favicon='🕶️',
     )

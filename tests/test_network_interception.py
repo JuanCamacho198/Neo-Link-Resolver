@@ -2,7 +2,6 @@
 tests/test_network_interception.py - Pruebas para los nuevos módulos de interceptación.
 """
 
-import pytest
 from src.network_analyzer import NetworkAnalyzer
 from src.dom_analyzer import DOMAnalyzer
 
