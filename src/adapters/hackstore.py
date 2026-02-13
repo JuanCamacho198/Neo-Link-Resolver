@@ -127,6 +127,7 @@ class HackstoreAdapter(SiteAdapter):
         page = None
         try:
             page = self.context.new_page()
+            self.page = page # Almacenar referencia para métodos internos
             
             # Activar Network Interceptor
             if self.network_analyzer:
@@ -595,7 +596,7 @@ class HackstoreAdapter(SiteAdapter):
                 return Array.from(document.querySelectorAll('a[href]')).map(a => ({
                     text: a.innerText.trim(),
                     href: a.href,
-                    parentText: a.parentElement ? a.parentElement.innerText.strip() : ""
+                    parentText: a.parentElement ? a.parentElement.innerText.trim() : ""
                 }));
             }""")
             

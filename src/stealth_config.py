@@ -157,9 +157,19 @@ def setup_popup_handler(context: BrowserContext, auto_close: bool = True) -> Non
             page.wait_for_timeout(500)
             url = page.url
             
+            # NO cerrar la página principal
+            if len(context.pages) <= 1:
+                return
+
             # Si el popup es exactamente el mismo URL que la página principal, ignorar silenciosamente
-            main_url = context.pages[0].url if context.pages else ""
+            # Buscamos la primera página que suele ser la principal
+            main_page = context.pages[0]
+            if page == main_page:
+                return
+                
+            main_url = main_page.url
             if url == main_url or url == main_url + "/":
+                logger.info(f"Closing clone popup of main page: {url[:40]}...")
                 page.close()
                 return
 
