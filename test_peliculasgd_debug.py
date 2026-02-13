@@ -21,19 +21,8 @@ def test_peliculasgd():
     logger.register_callback(lambda lv, msg: print(f"[{lv}] {msg}"))
     logger.info(f"[*] Iniciando prueba para: {url}")
     
-    # 1. Probar detección de calidades
-    print("\n--- PASO 1: Probando Detección de Calidades ---")
-    detector = QualityDetector(headless=False)
-    try:
-        qualities = detector.detect_qualities(url)
-        print(f"[+] Calidades detectadas: {qualities}")
-        if not qualities:
-            print("[-] No se detectaron calidades en la página.")
-    except Exception as e:
-        print(f"[-] Error en detección: {e}")
-
-    # 2. Probar resolución completa
-    print("\n--- PASO 2: Probando Resolución Completa ---")
+    # Probar resolución completa directamente (ya tenemos el link de calidad específica)
+    print("\n--- Probando Resolución Completa ---")
     resolver = LinkResolver(headless=False)
     # Forzar el uso del adaptador de PeliculasGD
     try:
