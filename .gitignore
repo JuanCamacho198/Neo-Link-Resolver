@@ -32,6 +32,7 @@ env/
 
 # ===== IDE & EDITORS =====
 .vscode/
+data/
 .idea/
 *.swp
 *.swo
