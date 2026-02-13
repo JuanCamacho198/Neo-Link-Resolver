@@ -21,10 +21,10 @@ pip install -r requirements.txt
 
 ```bash
 # Desde la raíz del proyecto (Neo-Link-Resolver/)
-python src/gui.py
+python src/gui_desktop.py
 ```
 
-La aplicación abrirá automáticamente en `http://localhost:8081`
+La aplicación de escritorio se abrirá inmediatamente.
 
 ## Flujo de Uso
 
@@ -64,4 +64,4 @@ La aplicación abrirá automáticamente en `http://localhost:8081`
 
 ---
 
-¿Listo? Ejecuta `python src/gui.py` y abre http://localhost:8081 🎬
+¿Listo? Ejecuta `python src/gui_desktop.py`🎬

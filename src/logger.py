@@ -58,6 +58,9 @@ class ResolverLogger:
     def info(self, message: str, step: str = None):
         self.log("INFO", message, step)
 
+    def debug(self, message: str, step: str = None):
+        self.log("DEBUG", message, step)
+
     def success(self, message: str, step: str = None):
         self.log("SUCCESS", message, step)
 

@@ -76,7 +76,7 @@ class NetworkAnalyzer:
         
         if self.is_ad_url(url):
             self.blocked_requests += 1
-            self.logger.debug(f"Blocked ad request: {url[:80]}...")
+            self.logger.info(f"Blocked ad request: {url[:80]}...")
             route.abort()
         elif request.resource_type in ["image", "media", "font"] and "google" not in url:
             # Opcional: Bloquear recursos pesados que no sean de Google (donde suelen estar los links)

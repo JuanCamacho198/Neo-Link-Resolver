@@ -126,7 +126,7 @@ class TimerInterceptor:
             if result and result.get('modified'):
                 self.logger.info("Timer acceleration applied - wait time reduced significantly")
         except Exception as e:
-            self.logger.debug(f"PeliculasGD timer skip not applicable or failed: {e}")
+            self.logger.info(f"PeliculasGD timer skip not applicable or failed: {e}")
 
     def force_enable_buttons(self, page: Page):
         """

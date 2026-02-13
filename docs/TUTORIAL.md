@@ -9,17 +9,17 @@ pip install -r requirements.txt
 # 2. Instalar navegadores de Playwright
 playwright install
 
-# 3. Lanzar la GUI
-python src/gui.py
+# 3. Lanzar la aplicación
+python src/gui_desktop.py
 ```
 
-La interfaz se abrira automaticamente en tu navegador en `http://localhost:8080`
+La aplicación de escritorio se abrirá inmediatamente.
 
 ## Guia de uso paso a paso
 
 ### 1. Interfaz principal
 
-Al abrir la GUI veras:
+Al abrir la aplicación verás:
 
 - **Header**: Logo y version
 - **Descripcion**: Breve explicacion del proyecto

@@ -25,7 +25,7 @@ def apply_stealth_to_page(page: Page) -> None:
     
     try:
         stealth_sync(page)
-        logger.debug("Stealth mode applied to page")
+        logger.info("Stealth mode applied to page")
     except Exception as e:
         logger.warning(f"Failed to apply stealth mode: {e}")
 
@@ -65,7 +65,7 @@ def apply_stealth_to_context(context: BrowserContext) -> None:
                     originalQuery(parameters)
             );
         """)
-        logger.debug("Anti-detection scripts injected into context")
+        logger.info("Anti-detection scripts injected into context")
     except Exception as e:
         logger.warning(f"Failed to inject anti-detection scripts: {e}")
 
@@ -85,7 +85,7 @@ def setup_popup_handler(context: BrowserContext, auto_close: bool = True) -> Non
         """Maneja popups automáticamente."""
         try:
             url = page.url
-            logger.debug(f"Popup detected: {url[:60]}")
+            logger.info(f"Popup detected: {url[:60]}")
             
             # Lista de dominios de ads/popups conocidos
             ad_patterns = [
@@ -103,7 +103,7 @@ def setup_popup_handler(context: BrowserContext, auto_close: bool = True) -> Non
                 # Si no es ad conocido, dejarlo abierto pero loggearlo
                 logger.warning(f"Unknown popup opened (not auto-closed): {url[:60]}")
         except Exception as e:
-            logger.debug(f"Error handling popup: {e}")
+            logger.info(f"Error handling popup: {e}")
     
     # Registrar el handler
     context.on("page", handle_popup)

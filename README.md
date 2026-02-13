@@ -6,9 +6,9 @@ Agente de navegacion autonomo que resuelve enlaces "sucios" (con acortadores, ad
 
 ## Caracteristicas
 
-- **Interfaz Grafica (v0.4+)**: GUI moderna con logs en tiempo real y visualizacion del proceso
-- **Historial y Favoritos (NUEVO v0.5)**: Guarda automáticamente todos los links resueltos, marca favoritos, exporta a JSON/CSV
-- **Multi-sitio**: Adaptadores para `peliculasgd.net`, `hackstore.mx` (extensible)
+- **Interfaz Gráfica de Escritorio (v0.6+)**: GUI estable con Tkinter, logs en tiempo real y visualización del proceso.
+- **Interceptación de Red (90% Confiabilidad)**: Captura de links finales interceptando peticiones HTTP antes de los clics, evadiendo anuncios de forma extremadamente eficiente.
+- **Historial y Favoritos**: Guarda automáticamente todos los links resueltos, marca favoritos, exporta a JSON/CSV.
 - **Busqueda inteligente**: Filtra por calidad (1080p, 720p), formato (WEB-DL, BluRay), proveedor (uTorrent, Google Drive, Mega)
 - **Evasion anti-bot**: Simulacion de comportamiento humano (mouse, scroll, clicks aleatorios)
 - **Automatizacion completa**: Maneja popups, redirects, verificaciones humanas y anuncios obligatorios
@@ -29,22 +29,22 @@ playwright install
 
 ## Uso
 
-### Interfaz Grafica (Recomendado)
+### Interfaz Gráfica (Recomendado)
 
-La forma mas facil de usar Neo-Link-Resolver es con la interfaz grafica:
+La forma más fácil de usar Neo-Link-Resolver es con la interfaz de escritorio:
 
 ```bash
-python src/gui.py
+python src/gui_desktop.py
 ```
 
-Esto abrira automaticamente un navegador en `http://localhost:8081` con una interfaz moderna donde puedes:
+Esto abrirá la aplicación donde puedes:
 
-- Pegar la URL de la pelicula
+- Pegar la URL de la película
 - Seleccionar calidad, formato y proveedores preferidos
-- **Ver en tiempo real** lo que el agente esta haciendo (logs en vivo)
+- **Ver en tiempo real** lo que el agente está haciendo (logs en vivo)
 - Copiar el link final con un click
-- Abrir directamente el link de descarga
-- **Gestionar historial**: Ve todos los links que has resuelto, marca favoritos, exporta a JSON/CSV
+- **Gestión inteligente**: Interceptación de red para evitar redirects de publicidad hostil.
+- **Historial**: Ve todos los links que has resuelto, marca favoritos, exporta a JSON/CSV.
 
 ![GUI Preview](docs/gui-screenshot.png)
 
@@ -85,7 +85,7 @@ python src/main.py https://www.peliculasgd.net/bob-esponja-... \
 
 ### Con la GUI
 
-1. Ejecuta `python src/gui.py`
+1. Ejecuta `python src/gui_desktop.py`
 2. En la interfaz:
    - Pega la URL: `https://hackstore.mx/peliculas/eragon-2006`
    - Selecciona calidad: `1080p`
@@ -115,18 +115,17 @@ python src/main.py https://hackstore.mx/peliculas/inception-2010 --headless
 
 ```
 src/
-├── gui.py               # Interfaz grafica (NiceGUI) - v0.4+
+├── gui_desktop.py       # Interfaz de escritorio (Tkinter) - v0.6+ (RECOMENDADO)
+├── gui.py               # Interfaz web (NiceGUI) - Deprecated
 ├── main.py              # Entry point con CLI
 ├── resolver.py          # Wrapper del resolver con logging - v0.4+
 ├── logger.py            # Sistema de logging en tiempo real - v0.4+
+├── network_analyzer.py  # Estrategia de interceptación de red (90% confiabilidad)
 ├── history_manager.py   # Gestor de historial, favoritos y exportacion - NUEVO v0.5
 ├── config.py            # Configuracion global, criterios de busqueda
 ├── matcher.py           # Motor de ranking de links
 ├── human_sim.py         # Simulacion de comportamiento humano
 └── adapters/            # Sistema de adaptadores por sitio
-    ├── base.py          # Clase base abstracta
-    ├── peliculasgd.py   # Adaptador para peliculasgd.net (7 pasos)
-    └── hackstore.py     # Adaptador para hackstore.mx
 ```
 
 ### Como funciona

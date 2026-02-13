@@ -10,11 +10,12 @@ import sys
 import os
 import asyncio
 
-# FIX para Python 3.13 + Windows + NiceGUI hang
-# Forzamos el uso de SelectorEventLoopPolicy que es más estable para servidores web en Windows
+# FIX para Python 3.13 + Windows + NiceGUI
+# Usamos WindowsProactorEventLoopPolicy que soporta subprocesos (necesario para Playwright)
 if sys.platform == 'win32':
     try:
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        print("Set event loop policy to ProactorEventLoopPolicy (required for Playwright)")
     except Exception as e:
         print(f"Warning: Could not set event loop policy: {e}")
 
@@ -229,23 +230,40 @@ async def resolve_link(
     logger.clear()
     logger.register_callback(log_callback)
 
-    # Ejecutar resolucion de forma asincrona (usando async resolver)
+    # Ejecutar resolucion en thread separado usando el resolver sin crono
+    # Ahora funciona porque cambiamos a ProactorEventLoopPolicy que soporta subprocesos
+    def run_resolver():
+        try:
+            logger.log("INFO", "Initializing resolver...")
+            resolver = LinkResolver(headless=False, screenshot_callback=screenshot_callback)
+            logger.log("INFO", "Resolver created successfully")
+            
+            # Aplicar configuraciones de interceptación
+            resolver.use_network_interception = state.block_ads
+            resolver.accelerate_timers = state.speed_up_timers
+            logger.log("INFO", f"Settings: block_ads={state.block_ads}, speed_up_timers={state.speed_up_timers}")
+            
+            logger.log("INFO", "Starting resolution...")
+            result = resolver.resolve(url, quality, format_type, providers, language)
+            logger.log("INFO", f"Resolution completed. Result: {result}")
+            
+            return result
+        except Exception as e:
+            logger.log("ERROR", f"Resolver exception: {str(e)}")
+            import traceback
+            logger.log("ERROR", traceback.format_exc())
+            return None
+
+    # Ejecutar en executor (thread pool)
+    # Con ProactorEventLoopPolicy, Playwright puede crear subprocesos correctamente
     try:
-        logger.log("INFO", "Initializing async resolver...")
-        resolver = AsyncLinkResolver(headless=False, screenshot_callback=screenshot_callback)
-        logger.log("INFO", "Resolver created successfully")
-        
-        # Aplicar configuraciones de interceptación
-        resolver.use_network_interception = state.block_ads
-        resolver.accelerate_timers = state.speed_up_timers
-        logger.log("INFO", f"Settings: block_ads={state.block_ads}, speed_up_timers={state.speed_up_timers}")
-        
-        logger.log("INFO", "Starting async resolution...")
-        result = await resolver.resolve(url, quality, format_type, providers)
-        logger.log("INFO", f"Resolution completed. Result: {result}")
-        
+        logger.log("INFO", "Submitting resolver task to executor...")
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, run_resolver
+        )
+        logger.log("INFO", "Resolver task completed")
     except Exception as e:
-        logger.log("ERROR", f"Resolver exception: {str(e)}")
+        logger.log("ERROR", f"Task execution failed: {str(e)}")
         import traceback
         logger.log("ERROR", traceback.format_exc())
         result = None

@@ -53,7 +53,7 @@ class VisionFallback:
             Dict con análisis o None si falla
         """
         if not self.enabled:
-            logger.debug("Vision fallback not available")
+            logger.info("Vision fallback not available")
             return None
         
         try:

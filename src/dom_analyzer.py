@@ -43,7 +43,7 @@ class DOMAnalyzer:
             }""")
             return features
         except Exception as e:
-            self.logger.debug(f"Failed to get features for element: {e}")
+            self.logger.info(f"Failed to get features for element: {e}")
             return None
 
     def calculate_realness_score(self, features: Dict) -> float:

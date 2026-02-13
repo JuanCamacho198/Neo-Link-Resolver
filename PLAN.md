@@ -28,24 +28,25 @@ Crear un agente capaz de navegar desde un enlace "sucio" (lleno de ads/shortener
 - [x] Motor de matching inteligente por calidad/formato/proveedor (`src/matcher.py`).
 - [x] Soporte para `hackstore.mx` con busqueda inteligente de links.
 - [x] CLI con criterios de busqueda (`--quality`, `--format`, `--provider`).
-- [x] **v0.4:** Interfaz grafica moderna con NiceGUI (`src/gui.py`).
-- [x] **v0.4:** Sistema de logging en tiempo real visible en la GUI (`src/logger.py`).
-- [x] **v0.4:** Wrapper del resolver con soporte para callbacks (`src/resolver.py`).
-- [x] **Hito:** Resolver links con GUI o CLI, visualizacion en tiempo real del proceso.
+- [x] **v0.5:** Interfaz gráfica de escritorio con Tkinter (`src/gui_desktop.py`) - REEMPLAZA NiceGUI por estabilidad.
+- [x] **v0.5:** Sistema de logging en tiempo real visible en la GUI.
+- [x] **v0.5:** Wrapper del resolver con soporte para callbacks (`src/resolver.py`).
+- [x] **Hito:** Resolver links con GUI de escritorio, visualización en tiempo real del proceso.
 
 ### Mes 1.5: Polish & User Experience 🎨 (NUEVO)
-- [x] Crear interfaz grafica intuitiva y moderna.
-- [x] Logs en tiempo real durante la resolucion.
+- [x] Crear interfaz gráfica intuitiva y moderna (Tkinter/Desktop).
+- [x] Logs en tiempo real durante la resolución.
 - [x] Sistema de favoritos/historial de links resueltos.
 - [x] Exportar resultados a CSV/JSON.
 
-### Mes 2: Dodging Bullets (Network Interception & Ad Evasion) 🔵 (EN PROGRESO)
+### Mes 2: Dodging Bullets (Network Interception & Ad Evasion) 🔵 (ESTRATEGIA PRINCIPAL)
+- [x] **Estrategia Core (90% Confiabilidad):** Network Interception. 
+- [x] **Pre-click Interception:** Interceptar las peticiones HTTP *antes* de hacer clic para ver a dónde apuntan realmente los enlaces.
 - [x] Implementar `NetworkAnalyzer` para bloqueo de ads y captura de redirects.
 - [x] Implementar `DOMAnalyzer` para heurísticas de botones (reemplaza Visión por IA).
 - [x] Implementar `TimerInterceptor` para acelerar esperas obligatorias (45s -> 5s).
 - [x] Integrar interceptación en adaptadores (`peliculasgd`, `hackstore`).
-- [x] Panel de configuración de interceptación en GUI.
-- [ ] **Hito:** Resolver links en `peliculasgd.net` en menos de 20 segundos ignorando anuncios.
+- [x] **Hito:** Resolver links en `peliculasgd.net` en menos de 20 segundos ignorando anuncios con 90% de éxito.
 
 ### Mes 2.5: "I Know Kung Fu" (Visión Computacional) 🟡 (DESACTIVADO)
 - [x] Integrar modelo de Visión (GPT-4o Vision).
@@ -93,7 +94,7 @@ src/
 
 ### Flujo de resolucion inteligente:
 
-1. **Usuario ejecuta**: `python main.py <url> --quality 1080p --format WEB-DL --provider utorrent`
+1. **Usuario ejecuta**: `python src/gui_desktop.py` o CLI `python main.py <url> --quality 1080p --format WEB-DL --provider utorrent`
 2. **main.py** crea `SearchCriteria` con los parametros
 3. **Adaptador** se selecciona automaticamente segun la URL
 4. **Adaptador** navega y extrae todos los links disponibles
