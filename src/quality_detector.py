@@ -77,9 +77,17 @@ class QualityDetector:
             
             seen_texts = set()
             
+            # NUEVO: Analizar URL
+            texts_to_analyze = [{"text": url, "source": "URL"}]
             for el in elements:
                 try:
-                    text = el.inner_text().strip()
+                    t = el.inner_text().strip()
+                    if t: texts_to_analyze.append({"text": t, "source": "DOM"})
+                except: continue
+
+            for entry in texts_to_analyze:
+                try:
+                    text = entry["text"]
                     # Filtros básicos
                     if not text or len(text) > 120 or text in seen_texts:
                         continue
