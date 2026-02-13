@@ -231,17 +231,31 @@ class PeliculasGDAdapter(SiteAdapter):
 
     def _step5_6_resolve_verification_and_timer(self, page: Page) -> Page:
         self.log("STEP5/6", "Resolving blog verification (timer + ad click)...")
-        page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
         
-        # --- Limpieza de overlays ---
-        try:
-            page.evaluate("""() => {
-                ['.fc-consent-root', '.cc-window', '#onetrust-consent-sdk', '[id*="google-consent"]'].forEach(sel => {
-                    document.querySelectorAll(sel).forEach(el => el.remove());
-                });
-                document.body.style.overflow = 'auto';
-            }""")
-        except: pass
+        # Eliminar cookies DE INMEDIATO y de forma agresiva
+        def kill_cookies():
+            try:
+                page.evaluate("""() => {
+                    const selectors = [
+                        '.fc-consent-root', '.cc-window', '#onetrust-consent-sdk', 
+                        '[id*="google-consent"]', '.asap-cookie-consent', 
+                        '.cmplz-cookiebanner', '.cmplz-blocked-content-notice',
+                        '#cmplz-cookiebanner-container', '.cmplz-soft-cookiewall'
+                    ];
+                    selectors.forEach(sel => {
+                        const els = document.querySelectorAll(sel);
+                        els.forEach(el => el.remove());
+                    });
+                    const acceptBtn = document.querySelector('.cmplz-btn.cmplz-accept, .cc-btn.cc-allow, #onetrust-accept-btn-handler');
+                    if (acceptBtn) acceptBtn.click();
+                    document.body.style.overflow = 'auto';
+                    document.documentElement.style.overflow = 'auto';
+                }""")
+            except: pass
+
+        kill_cookies()
+        page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
+        kill_cookies()
 
         # Simulación humana intensiva inicial
         self.log("STEP5/6", "Simulating human interaction to trigger verification script...")
@@ -254,34 +268,11 @@ class PeliculasGDAdapter(SiteAdapter):
             if page.is_closed():
                 break
 
-            # --- Limpieza de overlays (reiterativa) ---
-            try:
-                page.evaluate("""() => {
-                    [
-                        '.fc-consent-root', '.cc-window', '#onetrust-consent-sdk', 
-                        '[id*="google-consent"]', '.asap-cookie-consent', 
-                        '.cmplz-cookiebanner', '.cmplz-blocked-content-notice',
-                        '#cmplz-cookiebanner-container'
-                    ].forEach(sel => {
-                        document.querySelectorAll(sel).forEach(el => el.remove());
-                    });
-                    // Intentar clickar el botón de aceptar si existe y no se ha borrado
-                    const acceptBtn = document.querySelector('.cmplz-btn.cmplz-accept');
-                    if (acceptBtn) acceptBtn.click();
-                    
-                    document.body.style.overflow = 'auto';
-                }""")
-            except: pass
+            kill_cookies() # Seguir matando popups que reaparezcan
 
-            # 1. Buscar en TODOS los marcos (iframes) el botón
+            # 1. Buscar el botón de continuar
             for frame in page.frames:
                 try:
-                    # Log si vemos el texto de verificación
-                    v_text = frame.query_selector("text='Verificando que eres un humano'")
-                    if v_text:
-                        progress = frame.query_selector("text='%'")
-                        self.log("STEP5/6", f"Verification widget detected! Progress: {progress.inner_text() if progress else '???'}")
-
                     selectors = [
                         "button:has-text('Continuar')", 
                         "a:has-text('Continuar')",
@@ -306,43 +297,53 @@ class PeliculasGDAdapter(SiteAdapter):
                             except: continue
                 except: continue
 
-            # 2. Interacciones periódicas
             elapsed = time.time() - start_time
-            if int(elapsed) % 20 == 0:
+            
+            # 2. Clic en sidebar MUCHO MÁS RÁPIDO y agresivo
+            if not ad_clicked and elapsed > 1.5:
                 try:
-                    page.mouse.move(random.randint(100, 700), random.randint(100, 500))
-                except: pass
-
-            # 3. Clic en "Artículos relacionados" (pista del usuario) para activar el script de verificación
-            if not ad_clicked and elapsed > 10:
-                try:
-                    # Buscamos artículos en el sidebar o loops de artículos que suelen disparar el popup
-                    sidebar_links = page.query_selector_all(".last-post-sidebar a, .article-loop a, .asap-posts-loop a")
-                    if sidebar_links:
-                        self.log("STEP5/6", f"Clicking sidebar article to trigger verification (User Tip)...")
-                        # Elegimos uno al azar o el primero
-                        target_link = random.choice(sidebar_links[:3])
-                        target_link.click()
-                        ad_clicked = True # Marcamos como que ya interactuamos "fuertemente"
-                        page.wait_for_timeout(3000)
-                        self._close_trash_tabs(page)
-                except: pass
-
-            # 4. Clic en Ad si lo anterior no funcionó
-            if elapsed > 30 and not ad_clicked:
-                try:
-                    ads = page.query_selector_all("ins.adsbygoogle, iframe[src*='googleads'], #click_message")
-                    visible_ads = [ad for ad in ads if ad.is_visible()]
-                    if visible_ads:
-                        self.log("STEP5/6", "Clicking ad to trigger progress...")
-                        visible_ads[0].click()
-                        ad_clicked = True
-                        page.wait_for_timeout(3000)
-                        self._close_trash_tabs(page)
-                except: pass
+                    # Selectores CSS expandidos para los links del sidebar y títulos
+                    selectors = [
+                        ".last-post-sidebar a", 
+                        ".article-loop a", 
+                        ".asap-posts-loop a", 
+                        ".entry-title a",
+                        "article a",
+                        ".sidebar-content a"
+                    ]
                     
-            page.wait_for_timeout(2000)
-            self.log("STEP5/6", f"Status: waiting for verification... {int(time.time() - start_time)}s")
+                    found_links = []
+                    for s in selectors:
+                        links = page.query_selector_all(s)
+                        if links:
+                            found_links.extend(links)
+                    
+                    if found_links:
+                        self.log("STEP5/6", f"Clicking sidebar article to trigger verification ({len(found_links)} options found)...")
+                        # Priorizar el primer link de la lista provista por el usuario
+                        target_link = found_links[0]
+                        
+                        # Intento de clic forzado
+                        try:
+                            target_link.scroll_into_view_if_needed(timeout=2000)
+                            target_link.click(force=True, timeout=3000)
+                        except:
+                            # Fallback: clic vía JS
+                            page.evaluate("el => el.click()", target_link)
+                            
+                        ad_clicked = True
+                        page.wait_for_timeout(1500)
+                        self._close_trash_tabs(page)
+                except: pass
+
+            # 3. Interacciones periódicas
+            if int(elapsed * 2) % 20 == 0: # Cada 10s aprox (con sleep de 500ms)
+                try: page.mouse.move(random.randint(100, 700), random.randint(100, 500))
+                except: pass
+
+            page.wait_for_timeout(500) # Loop mucho más rápido
+            if int(elapsed) % 5 == 0:
+                self.log("STEP5/6", f"Status: waiting for verification... {int(elapsed)}s")
             
         raise Exception("Failed to resolve human verification (button never became active)")
 
