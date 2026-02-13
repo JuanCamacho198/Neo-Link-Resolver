@@ -6,11 +6,11 @@ from playwright.sync_api import BrowserContext, Page
 from logger import get_logger
 
 try:
-    from playwright_stealth import stealth_sync
+    from playwright_stealth import Stealth
     STEALTH_AVAILABLE = True
 except ImportError:
     STEALTH_AVAILABLE = False
-    stealth_sync = None
+    Stealth = None
 
 logger = get_logger()
 
@@ -24,7 +24,7 @@ def apply_stealth_to_page(page: Page) -> None:
         return
     
     try:
-        stealth_sync(page)
+        Stealth().apply_stealth_sync(page)
         logger.info("Stealth mode applied to page")
     except Exception as e:
         logger.warning(f"Failed to apply stealth mode: {e}")

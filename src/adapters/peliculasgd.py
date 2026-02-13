@@ -133,9 +133,9 @@ class PeliculasGDAdapter(SiteAdapter):
                     }
                     
                     const matches = ['INGRESAR', 'VINCULO', 'ENLACE', 'CONTINUAR', 'PROSEGUIR', 'DESCARGAR', 'CLICK HERE', 'IR AL LINK'];
-                    if (matches.some(m => txt.includes(m)) && href && !href.includes('javascript') && !href.includes('#')) {
-                        // Si es un link de 'r.php' o similar, o un link externo
-                        if (href.includes('neworld') || href.includes('bit.ly') || !href.includes(window.location.hostname)) {
+                    if (matches.some(m => txt.includes(m)) && !txt.includes('PRIVACIDAD')) {
+                        // Si es un link de 'r.php' o similar, o un elemento interactivo (div/button)
+                        if (href.includes('neworld') || href.includes('bit.ly') || !href || !href.includes(window.location.hostname)) {
                             el.style.border = '5px solid green';
                             el.click();
                         }
