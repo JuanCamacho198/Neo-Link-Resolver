@@ -11,15 +11,22 @@ def dump_hackstore():
         page.goto(url)
         page.wait_for_load_state("networkidle")
         
-        # Intentar click en ver enlaces
+        # Intentar click en ver enlaces y botones de descargar
         try:
-            btn = page.query_selector("button:has-text('VER ENLACES')")
-            if btn:
-                print("Clicking 'VER ENLACES'...")
-                btn.click()
-                page.wait_for_timeout(2000)
-        except:
-            pass
+            buttons = page.query_selector_all("button:has-text('Descargar'), button:has-text('VER ENLACES')")
+            print(f"Encontrados {len(buttons)} botones de descarga.")
+            for i, btn in enumerate(buttons):
+                print(f"Clicking button {i}...")
+                try:
+                    btn.click()
+                    page.wait_for_timeout(1000)
+                except Exception as e:
+                    print(f"Error clicando botón {i}: {e}")
+            
+            # Esperar un poco más para que carguen los links dinámicos
+            page.wait_for_timeout(3000)
+        except Exception as e:
+            print(f"Error general buscando botones: {e}")
             
         content = page.content()
         with open("data/hackstore_debug.html", "w", encoding="utf-8") as f:

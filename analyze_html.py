@@ -29,16 +29,34 @@ def analyze_hackstore_html(file_path):
     for l in potential_links[:10]:
         print(f"  - {l}")
 
-    # Buscar el script que contiene la data de links (si existe)
-    print("\n--- Buscando Bloques de Data ---")
-    scripts = soup.find_all('script')
-    for s in scripts:
-        if s.string and ('qualities' in s.string or 'links' in s.string):
-            print(f"Encontrado script con data (longitud: {len(s.string)})")
-            # Guardar el script para análisis profundo
-            with open('data/script_data.json', 'w', encoding='utf-8') as sf:
-                sf.write(s.string)
-            print("  Script guardado en 'data/script_data.json'")
+    print("\n--- Analizando Secciones de Calidad ---")
+    for tag in ['h1', 'h2', 'h3', 'h4']:
+        for h in soup.find_all(tag):
+            text = h.text.strip()
+            if any(q in text.lower() for q in ['1080p', '720p', '4k', 'dvdrip']):
+                print(f"Encontrado Heading: {text} ({tag})")
+                print(f"  Parent: {h.parent.name} - Clases: {h.parent.get('class')}")
+                
+                # Buscar en el abuelo si es necesario
+                container = h.parent
+                print(f"  Container Content (primeros 200 chars): {container.text.strip()[:200]}...")
+                
+                # Buscar links dentro del contenedor del heading
+                links = container.find_all('a')
+                for a in links:
+                    print(f"    Link en contenedor: {a.get('href')} - Texto: {a.text.strip()}")
+
+                gp = h.parent.parent
+                print(f"  Grandparent: {gp.name} - Clases: {gp.get('class')}")
+# Ver todos los elementos hijos para entender qué son
+                        for j, sub in enumerate(child.find_all(True, recursive=False)):
+                            print(f"        Sub {j}: {sub.name} - Clases: {sub.get('class')} - HTML: {str(sub)[:100]}...")
+                            # Ver descendientes que tengan href o texto
+                            for k, desc in enumerate(sub.find_all(True)):
+                                if desc.get('href'):
+                                    print(f"          Desc {k}: {desc.name} - Href: {desc.get('href')}")
+                                if desc.name == 'button':
+                                    print(f"          Desc {k}: button - Text: {desc.text.strip()}")
 
 if __name__ == "__main__":
     import os
