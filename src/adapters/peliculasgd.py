@@ -362,57 +362,63 @@ class PeliculasGDAdapter(SiteAdapter):
             if elapsed > 45 and not ad_clicked:
                 ad_clicked = False # Reset para forzar otro clic
             
-            # 2. Clic en sidebar REAL (evitando ads de MGID/sponsored)
+            # 2. Clic en sidebar REAL (Solo si no hemos clickeado ya uno)
             if not ad_clicked and elapsed > 2.0:
                 try:
-                    # Usar el selector exacto que el usuario sugirió
-                    sidebar_article_links = page.query_selector_all(".last-post-sidebar .article-loop a")
+                    # Usar los textos exactos sugeridos por el usuario
+                    specific_texts = [
+                        "Arroz con Leche tradicional",
+                        "Jamoncillo de Leche casero",
+                        "chiles en nogada poblanos"
+                    ]
                     
                     target_link = None
-                    for link in sidebar_article_links:
-                        try:
-                            # Verificar que sea un link interno de saboresmexico
-                            href = (link.get_attribute("href") or "").lower()
-                            if "saboresmexico.com" not in href or "mgid" in href or "clck." in href: 
-                                continue
-
-                            # Verificar que NO sea un ad de MGID o similar (REFORZADO)
-                            is_ad = page.evaluate("""(el) => {
-                                let curr = el;
-                                while(curr && curr !== document.body) {
-                                    const cls = (curr.className || "").toString().toLowerCase();
-                                    const id = (curr.id || "").toString().toLowerCase();
-                                    const rel = (curr.getAttribute('rel') || "").toLowerCase();
-                                    const dataTeaser = curr.getAttribute('data-teaser-link');
-                                    
-                                    if (cls.includes('mgbox') || cls.includes('mgline') || cls.includes('teaser') || 
-                                        cls.includes('sponsored') || id.includes('mgid') || 
-                                        rel.includes('sponsored') || dataTeaser === 'true') return true;
-                                    curr = curr.parentElement;
-                                }
-                                return false;
-                            }""", link)
-                            if not is_ad and link.is_visible():
+                    sidebar = page.query_selector(".last-post-sidebar")
+                    if sidebar:
+                        links = sidebar.query_selector_all("a")
+                        for link in links:
+                            text = (link.inner_text() or "").lower()
+                            if any(t.lower() in text for t in specific_texts):
                                 target_link = link
                                 break
-                        except: continue
+                    
+                    # Fallback si no hay específicos
+                    if not target_link:
+                        sidebar_article_links = page.query_selector_all(".last-post-sidebar .article-loop a")
+                        for link in sidebar_article_links:
+                             href = (link.get_attribute("href") or "").lower()
+                             if "saboresmexico.com" in href and "mgid" not in href:
+                                 target_link = link
+                                 break
 
                     if target_link:
                         self.log("STEP5/6", f"Clicking REAL sidebar article: {target_link.get_attribute('href')}")
-                        # Antes del clic, un "clic" en área vacía para despertar el script
-                        page.mouse.click(50, 50)
-                        
-                        target_link.click(force=True, timeout=3000)
+                        # Intentar clickear. A veces abre nueva pestaña, a veces navega.
+                        # No usamos _wait_for_new_page aquí para no complicar el loop, solo clickeamos.
+                        try:
+                            target_link.click(force=True, timeout=5000)
+                        except:
+                            # Si falla el click normal, intentar via evaluate
+                            page.evaluate("el => el.click()", target_link)
+                            
                         ad_clicked = True
                         page.wait_for_timeout(3000)
                         
-                        # "Mueve el mouse, haz scroll, y haz clic en cualquier area"
-                        self.log("STEP5/6", "Performing requested human verification actions (scroll + click area)...")
-                        page.mouse.wheel(0, 800)
-                        page.wait_for_timeout(500)
+                        # Acciones pedidas por el usuario: CERRAR COOKIES, MOVER, SCROLL, CLIC AREA
+                        kill_cookies() 
+                        self.log("STEP5/6", "Performing user-requested human verification (scroll + click any area)...")
+                        # Movimientos en la página que acabamos de clickear (o la misma si no cambió)
+                        page.mouse.move(400, 400)
+                        page.mouse.wheel(0, 600)
+                        page.wait_for_timeout(1000)
+                        page.mouse.click(350, 350) # Clic en área neutral para satisfacer el "haz clic en cualquier area"
                         page.mouse.wheel(0, -300)
-                        page.mouse.click(300, 300) # Clic en área vacía
-                        kill_cookies() # El usuario dijo cerrar popup cookies otra vez
+                        kill_cookies()
+                        
+                        # El usuario dice que hay que esperar los 40s. 
+                        # Vamos a retornar de una vez para que STEP7 maneje el escaneo global de pestañas.
+                        self.log("STEP5/6", "Sidebar article clicked and movements done. Moving to Step 7 for final scan.")
+                        return page
                 except Exception as e:
                     self.log("DEBUG", f"Error clicking sidebar: {e}")
 
@@ -442,121 +448,81 @@ class PeliculasGDAdapter(SiteAdapter):
         raise Exception("Failed to resolve human verification (button never became active)")
 
     def _step7_extract_final_link(self, page: Page) -> Optional[Dict]:
-        self.log("STEP7", "Extracting final link...")
+        self.log("STEP7", "Extracting final link (checking all tabs)...")
         
-        # Verificar si la página sigue viva
-        if page.is_closed():
-            for p in self.context.pages:
-                if not p.is_closed() and ("saboresmexico" in p.url or "mediafire" in p.url or "mega" in p.url):
-                    page = p
-                    break
-        
-        try:
-            page.wait_for_load_state("domcontentloaded", timeout=10000)
-        except: pass
-        
-        # Simulación humana inicial con cuidado
-        try:
-            if not page.is_closed():
-                simulate_human_behavior(page, intensity="low")
-        except: pass
-        
+        # El usuario dice que hay que esperar y que la PRIMERA página que se abrió cambia su estado
+        # Vamos a escanear todas las páginas abiertas periódicamente
         start_time = time.time()
-        while time.time() - start_time < 60: # 60s para el paso final
-            if page.is_closed():
-                # Intentar buscar la página de descarga en otras pestañas
-                for p in self.context.pages:
-                    if not p.is_closed() and any(x in p.url.lower() for x in ["drive.google", "mega.nz", "mediafire", "1fichier"]):
-                        self.log("STEP7", f"Found link in another tab: {p.url[:60]}")
-                        return {"url": p.url}
-                break
+        while time.time() - start_time < 90: # 90s para el paso final considerando el timer de 40s
             
-            # Matar cookies/popups de nuevo
-            try:
-                page.evaluate("() => { const b = document.querySelector('.fc-consent-root, .cmplz-cookiebanner'); if(b) b.remove(); }")
-            except: pass
+            # Revisar todas las pestañas abiertas
+            for p in self.context.pages:
+                if p.is_closed(): continue
+                url = p.url.lower()
+                
+                # 1. Si ya estamos directamente en un link de descarga
+                if any(x in url for x in ["drive.google.com", "mega.nz", "mediafire.com", "1fichier.com", "googledrive.com"]):
+                    self.log("STEP7", f"Found final link in tab URL: {url[:60]}")
+                    return {"url": p.url}
 
-            # Si pasan más de 20s y no hay nada, intentar clic neutral
-            if time.time() - start_time > 20 and int(time.time() - start_time) % 15 == 0:
-                self.log("STEP7", "Stuck? Clicking neutral area to trigger possible timers...")
-                try: page.mouse.click(50, 500)
+                # 2. Matar cookies en todas para ver botones
+                try: 
+                    p.evaluate("() => { const b = document.querySelector('.fc-consent-root, .cmplz-cookiebanner'); if(b) b.remove(); }")
                 except: pass
 
-            url = page.url.lower()
+                # 3. Buscar botones en esta página
+                for frame in p.frames:
+                    try:
+                        selectors = [
+                            "a:has-text('Obtener Vínculo')", 
+                            "button:has-text('Obtener Vínculo')",
+                            "a:has-text('Ingresa al link')", # Nuevo token sugerido por usuario
+                            "a:has-text('Descargar Aqui')", 
+                            "a.btn-download",
+                            "a.btn-link",
+                            "#generar_link"
+                        ]
+                        for sel in selectors:
+                            try:
+                                btn = frame.query_selector(sel)
+                                if btn and btn.is_visible():
+                                    inner_text = (btn.inner_text() or "").lower()
+                                    opacity = btn.evaluate("el => getComputedStyle(el).opacity")
+                                    # Si dice "espera", no clickear aún
+                                    if any(x in inner_text for x in ["espera", "generando", "por favor"]):
+                                        continue
+                                    if float(opacity) > 0.4:
+                                        self.log("STEP7", f"Found button '{inner_text}' in tab {url[:30]}. Clicking...")
+                                        try:
+                                            # Intentar clickear. Si abre nueva pestaña, _wait_for_new_page la detecta.
+                                            # Si es un link directo, nos devolverá el objeto Dict.
+                                            res = self._wait_for_new_page(p, lambda: btn.click(force=True, timeout=5000))
+                                            if isinstance(res, dict): return res
+                                            if res and res != p:
+                                                if any(x in res.url.lower() for x in ["drive.google", "mega.nz", "mediafire", "1fichier"]):
+                                                    return {"url": res.url}
+                                        except: pass
+                            except: continue
+                    except: continue
+
+                # 4. Buscar links directos en el DOM de esta página
+                patterns = ["a[href*='drive.google.com']", "a[href*='mega.nz']", "a[href*='mediafire.com']"]
+                for pat in patterns:
+                    try:
+                        el = p.query_selector(pat)
+                        if el:
+                            href = el.get_attribute("href")
+                            if href and "saboresmexico" not in href:
+                                self.log("STEP7", f"Found direct link in tab: {href[:60]}")
+                                return {"url": href}
+                    except: continue
+
+            # Simulación de espera/interacción si no hay nada
+            if int(time.time() - start_time) % 20 == 0:
+                self.log("STEP7", f"Still looking for link... {int(time.time() - start_time)}s")
             
-            # 1. Si ya estamos en un link de almacenamiento, lo devolvemos
-            if any(prov in url for prov in ["drive.google.com", "mega.nz", "mediafire.com", "1fichier.com"]):
-                return {"url": page.url}
-                
-            # 2. Buscar botones en TODOS los frames
-            for frame in page.frames:
-                try:
-                    selectors = [
-                        "a:has-text('Obtener Vínculo')", 
-                        "button:has-text('Obtener Vínculo')",
-                        "a:has-text('Descargar Aqui')", 
-                        "button:has-text('Descargar Aqui')",
-                        "a:has-text('Ir al enlace')", 
-                        "button:has-text('Ir al enlace')",
-                        "a.btn-download",
-                        "#generar_link"
-                    ]
-                    for sel in selectors:
-                        try:
-                            btn = frame.query_selector(sel)
-                            if btn and btn.is_visible():
-                                inner_text = (btn.inner_text() or "").lower()
-                                opacity = btn.evaluate("el => getComputedStyle(el).opacity")
-                                # Si dice "espera", no clickear aún
-                                if "espera" in inner_text or "generando" in inner_text or "por favor" in inner_text:
-                                    continue
-                                if float(opacity) > 0.5:
-                                    self.log("STEP7", f"Found active link button '{inner_text}' via {sel}")
-                                    # Intentar clickear y esperar nueva página o navegación
-                                    try:
-                                        res_p = self._wait_for_new_page(page, lambda: btn.click(force=True, timeout=5000))
-                                        if res_p and res_p != page:
-                                            # Si abrió una nueva página, ver si tiene el link
-                                            new_url = res_p.url.lower()
-                                            if any(x in new_url for x in ["drive.google", "mega.nz", "mediafire", "1fichier", "googledrive"]):
-                                                return {"url": res_p.url}
-                                            # Si no es el link, dejarla abierta y seguir buscando
-                                        page.wait_for_timeout(2000)
-                                    except: pass
-                        except: continue
-                except: continue
-
-            # 3. Buscar en el DOM links directos (Mediafire, Mega, etc.)
-            patterns = [
-                "a[href*='drive.google.com']",
-                "a[href*='mega.nz']",
-                "a[href*='mediafire.com']",
-                "a[href*='1fichier.com']",
-                "a[href*='googledrive.com']"
-            ]
-            for p in patterns:
-                try:
-                    el = page.query_selector(p)
-                    if el:
-                        href = el.get_attribute("href")
-                        if href and not "saboresmexico" in href: # Evitar links internos
-                            self.log("STEP7", f"Found direct link in DOM: {href[:60]}")
-                            return {"url": href}
-                except: continue
-
-            # 4. Regex como último recurso
-            try:
-                content = page.content()
-                matches = re.findall(r'https?://(?:mega\.nz|drive\.google\.com|mediafire\.com|1fichier\.com|googledrive\.com)/[^\s"\'<>]+', content)
-                for m in matches:
-                    if "saboresmexico" not in m:
-                        self.log("STEP7", f"Found link via regex: {m[:60]}")
-                        return {"url": m}
-            except: pass
-
             page.wait_for_timeout(2000)
             
-        page.screenshot(path="logs/peliculasgd_step7_fail.png")
         return None
 
     def _close_trash_tabs(self, main_page: Page):
