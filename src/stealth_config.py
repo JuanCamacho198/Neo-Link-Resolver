@@ -156,6 +156,13 @@ def setup_popup_handler(context: BrowserContext, auto_close: bool = True) -> Non
             # Esperar un poco a que la URL se estabilice
             page.wait_for_timeout(500)
             url = page.url
+            
+            # Si el popup es exactamente el mismo URL que la página principal, ignorar silenciosamente
+            main_url = context.pages[0].url if context.pages else ""
+            if url == main_url or url == main_url + "/":
+                page.close()
+                return
+
             logger.info(f"Popup detected: {url[:60]}")
             
             # Si es un ad conocido, cerrar inmediatamente
@@ -163,10 +170,10 @@ def setup_popup_handler(context: BrowserContext, auto_close: bool = True) -> Non
                 logger.info(f"Auto-closing ad popup: {url[:60]}")
                 page.close()
             else:
-                # Si no es ad conocido, dejarlo abierto pero loggearlo
-                logger.warning(f"Unknown popup opened (not auto-closed): {url[:60]}")
+                # Si no es ad conocido, dejarlo abierto pero con log nivel bajo
+                logger.debug(f"Unknown popup opened: {url[:60]}")
         except Exception as e:
-            logger.debug(f"Error handling popup (might be already closed): {e}")
+            logger.debug(f"Error handling popup: {e}")
     
     # Registrar el handler
     context.on("page", handle_popup)

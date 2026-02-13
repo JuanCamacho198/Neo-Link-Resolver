@@ -553,45 +553,89 @@ class HackstoreAdapter(SiteAdapter):
     
     def _extract_links_fallback(self, html_content: str, providers: List[str]) -> List[dict]:
         """
-        Fallback: extrae links basándose en búsqueda en el HTML.
-        Crea links representativos basados en calidades y proveedores encontrados.
+        Fallback: extrae links basándose en búsqueda directa en el DOM.
+        Busca cualquier link que parezca ser un acortador o link de descarga.
         """
-        links = []
+        candidates = []
         
         try:
-            # Buscar menciones de proveedores en el HTML
-            found_providers = []
-            for provider in providers:
-                if provider.lower() in html_content.lower():
-                    found_providers.append(provider)
-                    self.log("EXTRACT", f"Found provider in HTML: {provider}")
+            # Intentar expandir todo antes de buscar
+            self.log("EXTRACT", "Attempting to expand all 'Ver Enlaces' buttons...")
+            expand_selectors = [
+                "button:has-text('VER ENLACES')", 
+                "button:has-text('Ver Enlaces')",
+                ".btn-enlaces",
+                "#ver-enlaces"
+            ]
             
-            # Crear links representativos (para ranking)
-            quality_patterns = ["1080p", "720p", "480p", "web-dl", "bluray"]
-            found_qualities = []
+            for selector in expand_selectors:
+                try:
+                    buttons = self.page.query_selector_all(selector)
+                    for btn in buttons:
+                        if btn.is_visible():
+                            btn.click()
+                            random_delay(0.5, 1.0)
+                except:
+                    continue
+
+            # Buscar todos los links en la página
+            self.log("EXTRACT", "Searching DOM for potential download/shortener links...")
+            links_data = self.page.evaluate("""() => {
+                return Array.from(document.querySelectorAll('a[href]')).map(a => ({
+                    text: a.innerText.trim(),
+                    href: a.href,
+                    parentText: a.parentElement ? a.parentElement.innerText.strip() : ""
+                }));
+            }""")
             
-            for quality in quality_patterns:
-                if quality.lower() in html_content.lower():
-                    found_qualities.append(quality)
-                    self.log("EXTRACT", f"Found quality in HTML: {quality}")
+            for link in links_data:
+                url = link['href']
+                text = link['text'].lower()
+                parent_text = link['parentText'].lower()
+                
+                # Clasificar link
+                is_valid = False
+                source = "DOM Search"
+                
+                # Heurística: Dominio de descarga directa o acortador conocido
+                if self.network_analyzer:
+                    if self.network_analyzer.is_download_url(url) or self.network_analyzer.is_shortener_url(url):
+                        is_valid = True
+                
+                # Heurística: Patrones de URL de Hackstore para links
+                if "/links/" in url or "/link/" in url or "acortame.site" in url:
+                    is_valid = True
+                
+                if is_valid:
+                    # Intentar inferir calidad del texto circundante
+                    quality = "1080p" # Default
+                    for q in ["2160p", "4k", "1080p", "720p", "480p", "web-dl", "bluray"]:
+                        if q in text or q in parent_text or q in url.lower():
+                            quality = q
+                            break
+                    
+                    # Intentar inferir proveedor
+                    provider = "other"
+                    for p in providers:
+                        p_clean = p.replace(".com", "").replace(".nz", "").lower()
+                        if p_clean in url.lower() or p_clean in text or p_clean in parent_text:
+                            provider = p
+                            break
+                    
+                    candidates.append({
+                        'url': url,
+                        'quality': quality,
+                        'provider': provider,
+                        'format': "WEB-DL",
+                        'score': 50 # Score base medio
+                    })
             
-            if not found_qualities:
-                found_qualities = ["1080p"]
-            
-            if not found_providers:
-                found_providers = ["mediafire"]
-            
-            # Generar links representativos
-            # NOTA: Fallback eliminado para evitar URLs falsas
-            # Solo debemos retornar links si realmente encontramos URLs válidas.
-            
-            # Buscar links 'a' reales si no hemos encontrado nada específico
-            # TODO: Implementar un parser HTML ligero aquí si es necesario
+            self.log("EXTRACT", f"Fallback found {len(candidates)} potential links")
         
         except Exception as e:
             self.log("ERROR", f"Error in fallback extraction: {e}")
         
-        return links
+        return candidates
 
     def _is_shortener(self, url: str) -> bool:
         """Retorna True si la URL es un acortador de enlaces."""

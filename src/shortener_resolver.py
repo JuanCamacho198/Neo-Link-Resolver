@@ -72,15 +72,20 @@ class ShortenerChainResolver:
                 self.logger.info(f"Navigating to {url[:60]}...")
                 self.last_response = self.page.goto(url, wait_until="commit", timeout=45000)
             
-            # Aplicar stealth y aceleración
-            apply_stealth_to_page(self.page)
-            self.timer.accelerate_timers(self.page)
-            
-            # Inyectar detector de redirecciones JS
-            self._inject_redirect_interceptor()
+            # Aplicar stealth y aceleración (silenciar errores de navegación rápida)
+            try:
+                apply_stealth_to_page(self.page)
+                self.timer.accelerate_timers(self.page)
+                # Inyectar detector de redirecciones JS
+                self._inject_redirect_interceptor()
+            except Exception:
+                pass
             
             # Esperar a que la página cargue un poco
-            self.page.wait_for_timeout(2000)
+            try:
+                self.page.wait_for_timeout(2000)
+            except:
+                pass
             
             # 1. Buscar en redirects 3xx capturados por network analyzer
             captured = self.network.get_best_link()

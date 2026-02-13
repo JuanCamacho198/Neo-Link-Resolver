@@ -169,11 +169,18 @@ class LinkResolver:
                     
                     # 3. Registrar handler para configurar CADA página nueva (Stealth + Timers)
                     def on_page_created(p):
-                        if STEALTH_AVAILABLE:
-                            from stealth_config import apply_stealth_to_page
-                            apply_stealth_to_page(p)
-                        if self.accelerate_timers:
-                            timer_interceptor.accelerate_timers(p)
+                        try:
+                            if STEALTH_AVAILABLE:
+                                from stealth_config import apply_stealth_to_page
+                                apply_stealth_to_page(p)
+                            if self.accelerate_timers:
+                                # Usar try/except interno para evitar crashes por navegación rápida
+                                try:
+                                    timer_interceptor.accelerate_timers(p)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
                     
                     context.on("page", on_page_created)
                     
