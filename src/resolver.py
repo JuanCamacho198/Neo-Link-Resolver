@@ -15,6 +15,7 @@ from network_analyzer import NetworkAnalyzer
 from dom_analyzer import DOMAnalyzer
 from timer_interceptor import TimerInterceptor
 from shortener_resolver import ShortenerChainResolver
+from vision_fallback import VisionFallback
 from stealth_config import apply_stealth_to_context, setup_popup_handler, STEALTH_AVAILABLE
 import time
 import random
