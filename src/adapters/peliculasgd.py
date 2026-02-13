@@ -230,6 +230,39 @@ class PeliculasGDAdapter(SiteAdapter):
         self.log("STEP5/6", "Resolving blog verification (timer + ad click)...")
         page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
         
+        # --- NUEVO: Limpieza de Cookie Consent y Overlays ---
+        self.log("STEP5/6", "Cleaning cookie consent and blocking overlays...")
+        try:
+            # Intentar hacer clic en botones de aceptar cookies comunes
+            cookie_selectors = [
+                 "button:has-text('Aceptar')", "button:has-text('Accept')", 
+                 "button:has-text('Entendido')", "button:has-text('OK')",
+                 ".fc-cta-consent", ".cc-btn", "#cookie-accept"
+            ]
+            for sel in cookie_selectors:
+                try:
+                    btn = page.query_selector(sel)
+                    if btn and btn.is_visible():
+                        btn.click()
+                        self.log("DEBUG", f"Clicked cookie consent button: {sel}")
+                        page.wait_for_timeout(1000)
+                except: pass
+            
+            # Forzar eliminación de overlays y banners de Google Consent
+            page.evaluate("""() => {
+                const selectors = [
+                    '.fc-consent-root', '.cc-window', '#onetrust-consent-sdk',
+                    '[id*="google-consent"]', '[class*="consent"]', '[class*="cookie"]'
+                ];
+                selectors.forEach(sel => {
+                    document.querySelectorAll(sel).forEach(el => el.remove());
+                });
+                // Rehabilitar scroll si fue bloqueado por un popup
+                document.body.style.overflow = 'auto';
+            }""")
+        except Exception as e:
+            self.log("WARNING", f"Error cleaning overlays: {e}")
+
         simulate_human_behavior(page, intensity="heavy")
         
         start_time = time.time()
