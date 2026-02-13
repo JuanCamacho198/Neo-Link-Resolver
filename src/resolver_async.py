@@ -1,10 +1,10 @@
 """
-resolver.py - Wrapper del sistema de resolucion con logging integrado.
-Interfaz simplificada para usar desde GUI o CLI.
+resolver_async.py - Version async del resolver para uso con GUI basadas en asyncio.
+Soluciona el problema de NotImplementedError en Windows con WindowsSelectorEventLoopPolicy.
 """
 
 from typing import Optional, Callable
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 from config import SearchCriteria
 from adapters import get_adapter
 from matcher import LinkOption
@@ -17,12 +17,14 @@ from timer_interceptor import TimerInterceptor
 from stealth_config import apply_stealth_to_context, setup_popup_handler, STEALTH_AVAILABLE
 from vision_fallback import VisionFallback
 import time
+import asyncio
+import sys
 
 
-class LinkResolver:
+class AsyncLinkResolver:
     """
-    Wrapper del resolver que integra logging y manejo de errores.
-    Incluye retry logic con backoff exponencial para recuperarse de fallos transitorios.
+    Version async del LinkResolver que funciona correctamente con event loops asyncio.
+    Especialmente diseñado para GUIs que usan asyncio (NiceGUI, Streamlit, etc).
     """
 
     def __init__(self, headless: bool = True, screenshot_callback: Optional[Callable] = None, max_retries: int = 2):
@@ -34,9 +36,9 @@ class LinkResolver:
         self.history_manager = HistoryManager()
         self.use_network_interception = True
         self.accelerate_timers = True
-        self.use_vision_fallback = True  # Activar Vision como fallback
+        self.use_vision_fallback = True
 
-    def resolve(
+    async def resolve(
         self,
         url: str,
         quality: str = "1080p",
@@ -45,28 +47,24 @@ class LinkResolver:
         language: str = "latino",
     ) -> Optional[LinkOption]:
         """
-        Resuelve un link con los criterios especificados.
-        Implementa retry logic con exponential backoff.
-        
-        Returns:
-            LinkOption con el mejor link encontrado, o None si falla.
+        Resuelve un link de forma asincrona.
         """
         # Intentar resolver con retry
         for attempt in range(self.max_retries + 1):
             try:
-                result = self._resolve_internal(url, quality, format_type, providers, language)
+                result = await self._resolve_internal(url, quality, format_type, providers, language)
                 return result
             except Exception as e:
                 if attempt < self.max_retries:
-                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    wait_time = 2 ** attempt
                     self.logger.warning(f"Resolution attempt {attempt + 1} failed: {str(e)[:80]}")
                     self.logger.info(f"Retrying after {wait_time}s...")
-                    time.sleep(wait_time)
+                    await asyncio.sleep(wait_time)
                 else:
                     self.logger.error(f"All {self.max_retries + 1} resolution attempts failed")
                     return None
     
-    def _resolve_internal(
+    async def _resolve_internal(
         self,
         url: str,
         quality: str = "1080p",
@@ -98,13 +96,25 @@ class LinkResolver:
         browser = None
         context = None
 
+        # Fix para Windows: cambiar temporalmente a ProactorEventLoopPolicy
+        # ya que WindowsSelectorEventLoopPolicy no soporta subprocess
+        old_policy = None
+        if sys.platform == 'win32':
+            try:
+                old_policy = asyncio.get_event_loop_policy()
+                if isinstance(old_policy, asyncio.WindowsSelectorEventLoopPolicy):
+                    self.logger.info("Switching to ProactorEventLoopPolicy for Playwright...")
+                    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+            except Exception as e:
+                self.logger.warning(f"Could not change event loop policy: {e}")
+
         try:
-            with sync_playwright() as p:
+            async with async_playwright() as p:
                 # Lanzar navegador
                 try:
                     self.logger.step("INIT", "Launching browser...")
                     self.logger.info(f"Headless mode: {self.headless}")
-                    browser = p.chromium.launch(
+                    browser = await p.chromium.launch(
                         headless=self.headless,
                         args=[
                             "--disable-blink-features=AutomationControlled",
@@ -121,7 +131,7 @@ class LinkResolver:
                     return None
 
                 try:
-                    context = browser.new_context(
+                    context = await browser.new_context(
                         viewport={"width": 1366, "height": 768},
                         user_agent=(
                             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -141,7 +151,7 @@ class LinkResolver:
                 except Exception as e:
                     self.logger.error(f"Failed to create browser context: {e}")
                     if browser:
-                        browser.close()
+                        await browser.close()
                     return None
 
                 try:
@@ -158,7 +168,6 @@ class LinkResolver:
                     original_log = adapter.log
                     def patched_log(step, msg):
                         self.logger.step(step, msg)
-                        # original_log(step, msg) - No duplicar en stdout
                     adapter.log = patched_log
 
                     # Configurar Network / DOM / Timer Analyzers
@@ -174,7 +183,7 @@ class LinkResolver:
                         vision_resolver=vision_fallback
                     )
 
-                    # Resolver
+                    # Resolver (los adapters son síncronos, esto está OK)
                     self.logger.step("RESOLVE", "Starting navigation...")
                     try:
                         result = adapter.resolve(url)
@@ -182,7 +191,7 @@ class LinkResolver:
                         self.logger.error(f"Adapter resolution failed: {e}")
                         return None
 
-                    # Mostrar estadísticas de interceptación si se usaron
+                    # Mostrar estadísticas
                     stats = network_analyzer.get_stats()
                     if stats['intercepted'] > 0:
                         self.logger.info(f"Network: {stats['blocked']} blocked ads")
@@ -217,13 +226,13 @@ class LinkResolver:
                     # Cleanup
                     if context:
                         try:
-                            context.close()
+                            await context.close()
                         except Exception as e:
                             self.logger.warning(f"Error closing context: {e}")
                     
                     if browser:
                         try:
-                            browser.close()
+                            await browser.close()
                             self.logger.step("EXIT", "Browser closed")
                         except Exception as e:
                             self.logger.warning(f"Error closing browser: {e}")
@@ -232,5 +241,14 @@ class LinkResolver:
             self.logger.error(f"Fatal error in resolve: {e}")
             import traceback
             self.logger.error(traceback.format_exc())
+        
+        finally:
+            # Restaurar el event loop policy original si se cambió
+            if old_policy and sys.platform == 'win32':
+                try:
+                    self.logger.info("Restoring original event loop policy...")
+                    asyncio.set_event_loop_policy(old_policy)
+                except Exception as e:
+                    self.logger.warning(f"Could not restore event loop policy: {e}")
 
         return result

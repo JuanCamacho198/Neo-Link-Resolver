@@ -31,6 +31,8 @@ from logger import get_logger
 from matcher import LinkOption
 from quality_detector import QualityDetector
 from history_manager import HistoryManager, ResolutionRecord
+import multiprocessing
+import queue
 print("Dependencias cargadas.")
 
 
@@ -227,31 +229,25 @@ async def resolve_link(
     logger.clear()
     logger.register_callback(log_callback)
 
-    # Ejecutar resolucion en thread separado (para no bloquear UI)
-    def run_resolver():
-        try:
-            resolver = LinkResolver(headless=False, screenshot_callback=screenshot_callback)
-            
-            # Aplicar configuraciones de interceptación
-            resolver.use_network_interception = state.block_ads
-            resolver.accelerate_timers = state.speed_up_timers
-            
-            result = resolver.resolve(url, quality, format_type, providers)
-            
-            # Capturar estadísticas finales si el resolver las expone o si hay acceso al network_analyzer
-            # Nota: En una implementación más robusta usaríamos un callback para stats periódicos
-            return result
-        except Exception as e:
-            logger.log("ERROR", f"Resolver exception: {str(e)[:100]}")
-            return None
-
-    # Ejecutar en executor (thread pool)
+    # Ejecutar resolucion de forma asincrona (usando async resolver)
     try:
-        result = await asyncio.get_event_loop().run_in_executor(
-            None, run_resolver
-        )
+        logger.log("INFO", "Initializing async resolver...")
+        resolver = AsyncLinkResolver(headless=False, screenshot_callback=screenshot_callback)
+        logger.log("INFO", "Resolver created successfully")
+        
+        # Aplicar configuraciones de interceptación
+        resolver.use_network_interception = state.block_ads
+        resolver.accelerate_timers = state.speed_up_timers
+        logger.log("INFO", f"Settings: block_ads={state.block_ads}, speed_up_timers={state.speed_up_timers}")
+        
+        logger.log("INFO", "Starting async resolution...")
+        result = await resolver.resolve(url, quality, format_type, providers)
+        logger.log("INFO", f"Resolution completed. Result: {result}")
+        
     except Exception as e:
-        logger.log("ERROR", f"Task execution failed: {str(e)[:100]}")
+        logger.log("ERROR", f"Resolver exception: {str(e)}")
+        import traceback
+        logger.log("ERROR", traceback.format_exc())
         result = None
 
     # Actualizar resultado
