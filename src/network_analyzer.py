@@ -95,8 +95,9 @@ class NetworkAnalyzer:
             return
 
         # Bloquear recursos pesados innecesarios para resolución de links
-        BLOCKED_TYPES = ["image", "media", "font", "stylesheet"]
-        # Permitir CSS de Google (a veces necesario para layout) y scripts (NECESARIOS para timers)
+        # Nota: Dejamos 'stylesheet' fuera del bloqueo inicial porque algunos sitios
+        # lanzan ERR_ABORTED si los estilos críticos no cargan.
+        BLOCKED_TYPES = ["image", "media", "font"]
         if resource_type in BLOCKED_TYPES and "google" not in url:
             route.abort()
         else:

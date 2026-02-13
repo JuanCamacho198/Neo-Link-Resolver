@@ -137,13 +137,24 @@ class HackstoreAdapter(SiteAdapter):
             return None
         
         try:
-            try:
-                page.goto(url, timeout=TIMEOUT_NAV)
-                page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
-            except Exception as e:
-                self.log("ERROR", f"Navigation timeout or failed ({url[:60]}): {e}")
-                page.screenshot(path="hackstore_nav_error.png")
-                return None
+            # Reintento para la navegación inicial si falla por abort
+            max_nav_retries = 2
+            for nav_attempt in range(max_nav_retries):
+                try:
+                    page.goto(url, timeout=TIMEOUT_NAV)
+                    page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
+                    break # Éxito
+                except Exception as e:
+                    if "ERR_ABORTED" in str(e) and nav_attempt < max_nav_retries - 1:
+                        self.log("NAV", f"Retrying navigation due to aborted frame (attempt {nav_attempt+2})...")
+                        page.wait_for_timeout(1000)
+                        continue
+                    self.log("ERROR", f"Navigation timeout or failed ({url[:60]}): {e}")
+                    try:
+                        page.screenshot(path="hackstore_nav_error.png")
+                    except:
+                        pass
+                    return None
             
             random_delay(1.0, 3.0)
 

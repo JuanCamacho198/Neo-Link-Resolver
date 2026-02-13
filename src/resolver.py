@@ -44,7 +44,7 @@ class LinkResolver:
         self.history_manager = HistoryManager()
         self.use_network_interception = True
         self.accelerate_timers = True
-        self.use_vision_fallback = True  # Activar Vision como fallback
+        self.use_vision_fallback = False  # Desactivado por defecto
 
     def resolve(
         self,
