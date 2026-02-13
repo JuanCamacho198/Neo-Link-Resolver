@@ -10,6 +10,7 @@ from resolver import LinkResolver
 from logger import get_logger
 
 def test_zootopia():
+    print("!!! STARTING UNIQUE TEST FOR ZOOTOPIA !!!")
     url = "https://www.peliculasgd.net/zootopia-2-2025-web-dl-1080p-latino-googledrive/"
     
     logger = get_logger()

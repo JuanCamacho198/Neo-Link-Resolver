@@ -120,10 +120,19 @@ class PeliculasGDAdapter(SiteAdapter):
                 if (typeof counter !== 'undefined') counter = 0;
                 
                 // Buscar links finales
-                const allLinks = Array.from(document.querySelectorAll('a, button, [role="button"], iframe'));
+                const interactiveSelectors = 'a, button, [role="button"], div.text, div.btn, .button, .continue';
+                const allLinks = Array.from(document.querySelectorAll(interactiveSelectors));
+                
+                // También buscar cualquier DIV/SPAN que parezca un botón por texto
+                const extraLinks = Array.from(document.querySelectorAll('div, span')).filter(el => {
+                    const t = (el.innerText || '').trim().toUpperCase();
+                    return t === 'CONTINUAR' || t === 'CONTINUAR AL ENLACE' || t === 'GET LINK';
+                });
+                
+                const candidates = [...new Set([...allLinks, ...extraLinks])];
                 let found_href = null;
 
-                for (const el of allLinks) {
+                for (const el of candidates) {
                     const href = el.href || el.src || '';
                     const txt = (el.innerText || el.value || '').toUpperCase();
                     
@@ -136,8 +145,12 @@ class PeliculasGDAdapter(SiteAdapter):
                     if (matches.some(m => txt.includes(m)) && !txt.includes('PRIVACIDAD')) {
                         // Si es un link de 'r.php' o similar, o un elemento interactivo (div/button)
                         if (href.includes('neworld') || href.includes('bit.ly') || !href || !href.includes(window.location.hostname)) {
-                            el.style.border = '5px solid green';
-                            el.click();
+                            // Solo clickear si es visible
+                            const rect = el.getBoundingClientRect();
+                            if (rect.width > 0 && rect.height > 0) {
+                                el.style.border = '3px solid lime';
+                                el.click();
+                            }
                         }
                     }
                 }
@@ -166,21 +179,34 @@ class PeliculasGDAdapter(SiteAdapter):
                     is_shortener = "bit.ly" in url or "neworldtravel.com" in url or "safez.es" in url
                     is_blog = "saboresmexico" in url or "chef" in url or "receta" in url
 
+                    # Fase 5: Detección de bloqueo en NewWorldTravel
+                    if "neworldtravel.com" in url:
+                        # Verificar si fue redirigido a Google (bloqueo de bot)
+                        if "google.com" in url and "zx=" in url:
+                            self.log("BLOCK", "NewWorldTravel bloqueó el bot (redirigido a Google)")
+                            self.log("HUMAN", "Requiere intervención manual: resuelve el challenge en la pestaña abierta")
+                            # Dar tiempo para resolver manualmente
+                            time.sleep(60)
+                            # Después, continuar vigilando
+                            continue
+
                     if is_shortener or is_blog:
-                        # Activar scanner en esta pestaña
-                        try: p.evaluate(scanner_script)
-                        except: pass
+                        # Activar scanner en esta pestaña y todos sus frames
+                        for frame in p.frames:
+                            try: frame.evaluate(scanner_script)
+                            except: pass
                         
-                        # Consultar scanner
-                        try:
-                            found = p.evaluate("window.FINAL_LINK")
-                            if found:
-                                self.log("MARATHON", f"SUCCESS! Scanner found link: {found[:60]}...")
-                                # Limpiar redirectores si es necesario
-                                if "redir/?" in found: found = found.split("redir/?")[-1]
-                                self.final_link_found_in_network = found
-                                return
-                        except: pass
+                        # Consultar scanner en todos los frames
+                        for frame in p.frames:
+                            try:
+                                found = frame.evaluate("window.FINAL_LINK")
+                                if found:
+                                    self.log("MARATHON", f"SUCCESS! Scanner found link in frame: {found[:60]}...")
+                                    # Limpiar redirectores si es necesario
+                                    if "redir/?" in found: found = found.split("redir/?")[-1]
+                                    self.final_link_found_in_network = found
+                                    return
+                            except: pass
                         
                         # Acción agresiva ocasional para despertar la página
                         elapsed_since_start = int(time.time() - start_time)
