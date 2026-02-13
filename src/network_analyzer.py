@@ -35,13 +35,17 @@ class NetworkAnalyzer:
             'mediafire.com', '1fichier.com', 'gofile.io', 'uptobox.com', 'rapidgator.net',
             'dropbox.com', 'zippyshare.com', 'shared.com'
         ]
+        self.shortener_domains = [
+            'ouo.io', 'ouo.press', 'bc.vc', 'bit.ly', 'tinyurl.com', 'adf.ly'
+        ]
         
         if Path(config_path).exists():
             try:
-                with open(config_path, 'r') as f:
+                with open(config_path, 'r', encoding='utf-8') as f:
                     config = json.load(f)
                     self.ad_domains = config.get('ad_domains', self.ad_domains)
                     self.download_domains = config.get('download_domains', self.download_domains)
+                    self.shortener_domains = config.get('shortener_domains', self.shortener_domains)
             except Exception as e:
                 self.logger.warning(f"Could not load network config from {config_path}: {e}")
 
@@ -50,9 +54,17 @@ class NetworkAnalyzer:
         url_lower = url.lower()
         return any(ad_domain in url_lower for ad_domain in self.ad_domains)
 
+    def is_shortener_url(self, url: str) -> bool:
+        """Verifica si una URL pertenece a un acortador de enlaces."""
+        url_lower = url.lower()
+        return any(domain in url_lower for domain in self.shortener_domains)
+
     def is_download_url(self, url: str) -> bool:
         """Verifica si una URL es de un proveedor de descargas válido."""
         url_lower = url.lower()
+        # Evitar falsos positivos con dominios de ads que contienen palabras parecidas
+        if self.is_ad_url(url):
+            return False
         return any(domain in url_lower for domain in self.download_domains)
 
     def setup_network_interception(self, page: Page, block_ads: bool = True):
@@ -72,16 +84,21 @@ class NetworkAnalyzer:
         """Decide si permitir o bloquear una request."""
         request = route.request
         url = request.url
+        resource_type = request.resource_type
         self.intercepted_requests += 1
         
+        # Bloquear dominios de ads conocidos
         if self.is_ad_url(url):
             self.blocked_requests += 1
-            self.logger.info(f"Blocked ad request: {url[:80]}...")
+            # self.logger.info(f"Blocked ad request: {url[:80]}...") # Demasiado verboso
             route.abort()
-        elif request.resource_type in ["image", "media", "font"] and "google" not in url:
-            # Opcional: Bloquear recursos pesados que no sean de Google (donde suelen estar los links)
-            # Esto acelera mucho la carga en sitios lentos
-            route.continue_() # Por ahora dejamos pasar para no romper UI, pero podríamos abortar
+            return
+
+        # Bloquear recursos pesados innecesarios para resolución de links
+        BLOCKED_TYPES = ["image", "media", "font", "stylesheet"]
+        # Permitir CSS de Google (a veces necesario para layout) y scripts (NECESARIOS para timers)
+        if resource_type in BLOCKED_TYPES and "google" not in url:
+            route.abort()
         else:
             route.continue_()
 

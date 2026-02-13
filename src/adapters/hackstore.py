@@ -595,23 +595,32 @@ class HackstoreAdapter(SiteAdapter):
 
     def _is_shortener(self, url: str) -> bool:
         """Retorna True si la URL es un acortador de enlaces."""
-        shorteners = ["bit.ly", "tinyurl", "short", "ouo.io", "ow.ly"]
+        if self.network_analyzer:
+            return self.network_analyzer.is_shortener_url(url)
+        
+        # Fallback simple
+        shorteners = ["bit.ly", "tinyurl", "short", "ouo.io", "ow.ly", "acortame.site", "acortalo.link"]
         return any(s in url.lower() for s in shorteners)
 
     def _resolve_shortener(self, page: Page, shortener_url: str) -> str:
         """
         Navega a traves del acortador y retorna la URL final.
-        (Simplificado por ahora, se puede expandir con logica anti-ads)
+        Usa ShortenerChainResolver para seguir cadenas complejas.
         """
+        if self.shortener_resolver:
+            resolved = self.shortener_resolver.resolve(shortener_url, page)
+            if resolved:
+                return resolved
+                
+        # Fallback a la implementación anterior si no hay resolver o falla
         try:
+            self.log("NAV", f"Simplified resolution fallback for: {shortener_url[:50]}")
             page.goto(shortener_url, timeout=TIMEOUT_NAV)
             page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
-            random_delay(2.0, 4.0)
             
             # Esperar redireccion o extraer link final
             final_url = page.url
-            self.log("NAV", f"Shortener resolved to: {final_url[:100]}")
             return final_url
         except Exception as e:
             self.log("ERROR", f"Failed to resolve shortener: {e}")
-            return shortener_url  # Fallback
+            return shortener_url

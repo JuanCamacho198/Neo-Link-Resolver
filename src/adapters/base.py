@@ -22,14 +22,21 @@ class SiteAdapter(ABC):
         self.network_analyzer = None
         self.dom_analyzer = None
         self.timer_interceptor = None
-        self.vision_resolver = None  # Nuevo: Sistema de visión como fallback
+        self.vision_resolver = None
+        self.shortener_resolver = None # Nuevo: Manejador de acortadores
 
-    def set_analyzers(self, network_analyzer=None, dom_analyzer=None, timer_interceptor=None, vision_resolver=None):
+    def set_analyzers(self, 
+                     network_analyzer=None, 
+                     dom_analyzer=None, 
+                     timer_interceptor=None, 
+                     vision_resolver=None,
+                     shortener_resolver=None):
         """Asigna los analizadores para uso en el adaptador."""
         self.network_analyzer = network_analyzer
         self.dom_analyzer = dom_analyzer
         self.timer_interceptor = timer_interceptor
         self.vision_resolver = vision_resolver
+        self.shortener_resolver = shortener_resolver
 
     @abstractmethod
     def can_handle(self, url: str) -> bool:

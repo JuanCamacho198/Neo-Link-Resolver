@@ -131,35 +131,45 @@ class TimerInterceptor:
     def force_enable_buttons(self, page: Page):
         """
         Intenta forzar la activación de botones deshabilitados después de un tiempo prudencial.
-        Útil cuando el timer ya debería haber expirado pero el botón no se activa.
+        Mejorado con múltiples selectores y estrategias de visibilidad.
         """
         self.logger.step("HACK", "Attempting to force-enable disabled buttons...")
         
         script = """
         (() => {
             let activated = 0;
+            const selectors = [
+                'button[disabled]', 'a.btn[disabled]', 'input[type="submit"][disabled]',
+                '#getLink', '#btn-main', '.get-link', '.download-btn',
+                'button.disabled', 'a.disabled', '.btn-disabled', '[aria-disabled="true"]'
+            ];
             
-            // Buscar botones/links disabled
-            const elements = document.querySelectorAll('button[disabled], a.disabled, .btn-disabled, [aria-disabled="true"]');
-            
-            elements.forEach(el => {
-                const text = el.innerText.toLowerCase();
-                // Solo activar botones relevantes
-                if (text.includes('continuar') || text.includes('descargar') || 
-                    text.includes('siguiente') || text.includes('get link')) {
+            selectors.forEach(selector => {
+                const elements = document.querySelectorAll(selector);
+                elements.forEach(el => {
+                    const text = el.innerText.toLowerCase();
+                    const visible = !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
                     
-                    el.removeAttribute('disabled');
-                    el.classList.remove('disabled', 'btn-disabled');
-                    el.setAttribute('aria-disabled', 'false');
-                    
-                    // Restaurar estilo si parece deshabilitado visualmente
-                    el.style.pointerEvents = 'auto';
-                    el.style.opacity = '1';
-                    el.style.cursor = 'pointer';
-                    
-                    activated++;
-                    console.log("Force-enabled button:", text);
-                }
+                    // Solo activar botones relevantes o si el ID es muy específico
+                    if (text.includes('continuar') || text.includes('descargar') || 
+                        text.includes('siguiente') || text.includes('get link') || 
+                        text.includes('ir al enlace') || el.id === 'getLink') {
+                        
+                        el.removeAttribute('disabled');
+                        el.disabled = false;
+                        el.classList.remove('disabled', 'btn-disabled');
+                        el.setAttribute('aria-disabled', 'false');
+                        
+                        // Restaurar estilo si parece deshabilitado visualmente
+                        el.style.pointerEvents = 'auto';
+                        el.style.opacity = '1';
+                        el.style.cursor = 'pointer';
+                        el.style.display = 'block'; // Asegurar visibilidad si estaba oculto
+                        
+                        activated++;
+                        console.log("Force-enabled button:", text || el.id);
+                    }
+                });
             });
             
             return { activated: activated };
@@ -170,5 +180,64 @@ class TimerInterceptor:
             result = page.evaluate(script)
             if result and result.get('activated', 0) > 0:
                 self.logger.success(f"Force-enabled {result['activated']} button(s)")
+            return result.get('activated', 0) > 0
         except Exception as e:
             self.logger.warning(f"Could not force-enable buttons: {e}")
+            return False
+
+    async def detect_countdown(self, page: Page) -> bool:
+        """Detecta si hay un countdown activo en la página."""
+        script = """
+        (() => {
+            const texts = [
+                document.body.innerText,
+                ...Array.from(document.querySelectorAll('button, span, div')).map(el => el.innerText)
+            ];
+            // Buscar patrones como "Please wait 5 seconds", "Esperar 10s", etc.
+            const regex = /(esper|wait|segundos|seconds|\\d+\\s*s)/i;
+            return texts.some(t => regex.test(t) && /\\d+/.test(t));
+        })()
+        """
+        try:
+            return page.evaluate(script)
+        except:
+            return False
+
+    def wait_and_click_when_ready(self, page: Page, timeout_ms: int = 20000) -> bool:
+        """
+        Espera a que un posible timer termine y clickea el botón resultante.
+        Usa una estrategia combinada de esperar visibilidad y forzar activación.
+        """
+        self.logger.info(f"Waiting for button to be ready (timeout {timeout_ms}ms)...")
+        
+        start_time = __import__('time').time()
+        selectors = [
+            'a:has-text("Get Link")', 'button:has-text("Get Link")',
+            'a:has-text("Continuar")', 'button:has-text("Continuar")',
+            'a:has-text("Continue")', 'button:has-text("Continue")',
+            '#getLink', '.btn-success', '.get-link'
+        ]
+        
+        while (__import__('time').time() - start_time) * 1000 < timeout_ms:
+            for selector in selectors:
+                try:
+                    # Intentar encontrar un botón que sea visible y no deshabilitado
+                    el = page.query_selector(selector)
+                    if el and el.is_visible() and el.is_enabled():
+                        self.logger.success(f"Button ready! Clicking {selector}...")
+                        el.click()
+                        return True
+                except:
+                    continue
+            
+            # Si llevamos la mitad del tiempo, intentar forzar
+            if (__import__('time').time() - start_time) * 1000 > timeout_ms / 2:
+                if self.force_enable_buttons(page):
+                    # Reintentar click después de forzar
+                    page.wait_for_timeout(500)
+                    continue
+            
+            page.wait_for_timeout(1000)
+            
+        self.logger.warning("Timed out waiting for button")
+        return False

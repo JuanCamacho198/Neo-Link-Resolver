@@ -14,10 +14,19 @@ from history_manager import HistoryManager
 from network_analyzer import NetworkAnalyzer
 from dom_analyzer import DOMAnalyzer
 from timer_interceptor import TimerInterceptor
+from shortener_resolver import ShortenerChainResolver
 from stealth_config import apply_stealth_to_context, setup_popup_handler, STEALTH_AVAILABLE
-from vision_fallback import VisionFallback
 import time
+import random
 
+# User agents realistas para rotación
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.225 Safari/537.36",
+]
 
 class LinkResolver:
     """
@@ -100,17 +109,30 @@ class LinkResolver:
 
         try:
             with sync_playwright() as p:
-                # Lanzar navegador
+                # Lanzar navegador con flags de evasión extendidos
                 try:
                     self.logger.step("INIT", "Launching browser...")
                     self.logger.info(f"Headless mode: {self.headless}")
+                    
+                    # Flags optimizados para evitar detección
+                    chrome_args = [
+                        "--disable-blink-features=AutomationControlled",
+                        "--disable-features=IsolateOrigins,site-per-process",
+                        "--disable-site-isolation-trials",
+                        "--disable-web-security",
+                        "--no-first-run",
+                        "--no-default-browser-check",
+                        "--disable-infobars",
+                        "--disable-extensions",
+                        "--disable-popup-blocking",
+                        "--disable-background-timer-throttling",
+                        "--disable-backgrounding-occluded-windows",
+                        "--disable-renderer-backgrounding",
+                    ]
+                    
                     browser = p.chromium.launch(
                         headless=self.headless,
-                        args=[
-                            "--disable-blink-features=AutomationControlled",
-                            "--no-first-run",
-                            "--no-default-browser-check",
-                        ],
+                        args=chrome_args,
                     )
                     self.logger.success("Browser launched successfully!")
                 except Exception as e:
@@ -121,21 +143,40 @@ class LinkResolver:
                     return None
 
                 try:
+                    # Seleccionar User-Agent aleatorio
+                    user_agent = random.choice(USER_AGENTS)
+                    self.logger.info(f"Using UA: {user_agent[:50]}...")
+
                     context = browser.new_context(
                         viewport={"width": 1366, "height": 768},
-                        user_agent=(
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                            "AppleWebKit/537.36 (KHTML, like Gecko) "
-                            "Chrome/120.0.0.0 Safari/537.36"
-                        ),
+                        user_agent=user_agent,
+                        java_script_enabled=True,
+                        accept_downloads=True
                     )
                     
-                    # Aplicar configuración anti-detección
+                    # 1. Instanciar analizadores primero
+                    network_analyzer = NetworkAnalyzer()
+                    dom_analyzer = DOMAnalyzer()
+                    timer_interceptor = TimerInterceptor()
+                    shortener_resolver = ShortenerChainResolver(network_analyzer, timer_interceptor)
+                    vision_fallback = VisionFallback() if self.use_vision_fallback else None
+
+                    # 2. Aplicar configuración anti-detección al contexto
                     if STEALTH_AVAILABLE:
-                        self.logger.info("Applying stealth mode...")
+                        self.logger.info("Applying stealth mode to context...")
                         apply_stealth_to_context(context)
                     
-                    # Configurar manejo automático de popups
+                    # 3. Registrar handler para configurar CADA página nueva (Stealth + Timers)
+                    def on_page_created(p):
+                        if STEALTH_AVAILABLE:
+                            from stealth_config import apply_stealth_to_page
+                            apply_stealth_to_page(p)
+                        if self.accelerate_timers:
+                            timer_interceptor.accelerate_timers(p)
+                    
+                    context.on("page", on_page_created)
+                    
+                    # 4. Configurar manejo automático de popups
                     setup_popup_handler(context, auto_close=True)
                     
                 except Exception as e:
@@ -161,17 +202,13 @@ class LinkResolver:
                         # original_log(step, msg) - No duplicar en stdout
                     adapter.log = patched_log
 
-                    # Configurar Network / DOM / Timer Analyzers
-                    network_analyzer = NetworkAnalyzer()
-                    dom_analyzer = DOMAnalyzer()
-                    timer_interceptor = TimerInterceptor()
-                    vision_fallback = VisionFallback() if self.use_vision_fallback else None
-                    
+                    # Pasar analizadores ya creados al adaptador
                     adapter.set_analyzers(
                         network_analyzer=network_analyzer,
                         dom_analyzer=dom_analyzer,
                         timer_interceptor=timer_interceptor,
-                        vision_resolver=vision_fallback
+                        vision_resolver=vision_fallback,
+                        shortener_resolver=shortener_resolver
                     )
 
                     # Resolver
