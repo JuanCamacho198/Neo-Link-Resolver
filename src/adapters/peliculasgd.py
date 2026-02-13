@@ -103,32 +103,78 @@ class PeliculasGDAdapter(SiteAdapter):
     # Implementacion de los 7 pasos (del main.py original)
     # ---------------------------------------------------------------------------
 
-    def _wait_for_new_page(self, trigger_action, timeout=30_000) -> Page:
-        """Ejecuta accion que abre nueva pestana y la retorna."""
-        with self.context.expect_page(timeout=timeout) as new_page_info:
-            trigger_action()
-        new_page = new_page_info.value
-        new_page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
-        return new_page
+    def _wait_for_new_page(self, page: Page, trigger_action, timeout=40_000) -> Page:
+        """
+        Ejecuta accion que abre nueva pestana y la retorna.
+        """
+        self.log("NAV", "Interacting to find next target page...")
+        
+        for attempt in range(4): 
+            self.log("DEBUG", f"Click attempt {attempt + 1}...")
+            
+            # Limpiar overlays
+            try:
+                page.evaluate("() => { document.querySelectorAll('.fixed, [class*=\"overlay\"]').forEach(el => el.remove()); }")
+            except: pass
+
+            try:
+                with self.context.expect_page(timeout=10000) as new_page_info:
+                    trigger_action()
+                
+                new_page = new_page_info.value
+                new_page.wait_for_load_state("domcontentloaded", timeout=10000)
+                url = new_page.url.lower()
+                
+                trash_domains = [
+                    "mexicodesconocido", "gourmetdemexico", "asociaciondemexico", 
+                    "traveler", "realsite", "doubleclick", "adnxs", "popads", 
+                    "onclick", "bet", "gamble", "href.li", "about:blank"
+                ]
+                
+                # neworldtravel y saboresmexico son parte del flujo de PeliculasGD
+                is_trash = any(domain in url for domain in trash_domains)
+                
+                if is_trash and "google.com/search" not in url:
+                    self.log("DEBUG", f"Closing real ad popup: {url[:40]}")
+                    new_page.close()
+                    random_delay(1.0, 2.0)
+                    continue
+                else:
+                    self.log("NAV", f"Target page detected: {url[:60]}")
+                    return new_page
+            except Exception as e:
+                self.log("WARNING", f"Attempt {attempt+1} failed: {e}")
+                random_delay(1.0, 2.0)
+                
+        raise Exception("Failed to find a valid new page in PeliculasGD chain")
 
     def _step1_click_enlaces_publicos(self, page: Page) -> Page:
         self.log("STEP1", "Looking for 'Enlaces Publicos'...")
+        # Asegurar scroll
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
+        
         selectors = [
             "a:has(img.wp-image-125438)",
             "a:has(img[src*='cxx'])",
             "a:has(img[alt*='enlace' i])",
+            "img.wp-image-125438",
+            "xpath=//strong[contains(text(), 'Enlaces Públicos')]/preceding-sibling::a[1]",
+            "xpath=//strong[contains(text(), 'Enlaces Públicos')]/parent::a",
         ]
-        link = None
+        
+        target = None
         for sel in selectors:
-            link = page.query_selector(sel)
-            if link:
+            target = page.query_selector(sel)
+            if target:
+                self.log("DEBUG", f"Found element with selector: {sel}")
                 break
-        if not link:
+        
+        if not target:
+            # Screenshot de debug si no lo encuentra
+            page.screenshot(path="logs/peliculasgd_step1_not_found.png")
             raise Exception("Enlaces Publicos link not found")
-        random_delay(0.5, 1.5)
-        new_page = self._wait_for_new_page(lambda: link.click())
-        self.log("STEP1", f"Opened: {new_page.url[:60]}...")
-        return new_page
+            
+        return self._wait_for_new_page(page, lambda: target.click())
 
     def _step2_click_haz_clic_aqui(self, page: Page) -> Page:
         self.log("STEP2", "Looking for 'Haz clic aqui'...")
@@ -138,6 +184,7 @@ class PeliculasGDAdapter(SiteAdapter):
             "div.text >> text='Haz clic aquí'",
             "div.text >> text='Haz clic aqui'",
             "text='Haz clic aquí'",
+            "a:has-text('Haz clic aquí')",
         ]
         target = None
         for sel in selectors:
@@ -150,9 +197,7 @@ class PeliculasGDAdapter(SiteAdapter):
         if not target:
             raise Exception("'Haz clic aqui' not found")
         random_delay(0.5, 1.0)
-        new_page = self._wait_for_new_page(lambda: target.click())
-        self.log("STEP2", f"Opened: {new_page.url[:60]}...")
-        return new_page
+        return self._wait_for_new_page(page, lambda: target.click())
 
     def _step3_click_continuar(self, page: Page) -> Page:
         self.log("STEP3", "Looking for 'CLIC AQUI PARA CONTINUAR'...")
@@ -161,6 +206,7 @@ class PeliculasGDAdapter(SiteAdapter):
         selectors = [
             "button.button-s:has-text('CLIC')",
             "button.button-s",
+            "a.button-s",
         ]
         button = None
         for sel in selectors:
@@ -173,29 +219,51 @@ class PeliculasGDAdapter(SiteAdapter):
         if not button:
             raise Exception("Continue button not found")
         random_delay(0.5, 1.5)
-        new_page = self._wait_for_new_page(lambda: button.click())
-        self.log("STEP3", f"Opened Google: {new_page.url[:60]}...")
-        return new_page
+        return self._wait_for_new_page(page, lambda: button.click())
 
     def _step4_click_first_google_result(self, page: Page) -> Page:
         self.log("STEP4", "Clicking first Google result...")
+        
+        # Esperar a que Google cargue de verdad (si viene de href.li)
+        try:
+            page.wait_for_url("**/google.com/search*", timeout=15000)
+        except:
+            self.log("WARNING", f"Timeout waiting for Google URL. Current: {page.url}")
+            
         page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
         random_delay(1.5, 3.0)
+        
+        # Limpiar posibles overlays de cookies en Google
+        try:
+            page.evaluate("() => { document.querySelectorAll('button:has-text(\"Aceptar\"), button:has-text(\"Accept all\")').forEach(b => b.click()); }")
+        except: pass
+
         selectors = [
+            "a h3",
             "#search a[href]:not([href*='google'])",
             "#rso a[href]:not([href*='google'])",
         ]
         first_result = None
         for sel in selectors:
-            first_result = page.query_selector(sel)
-            if first_result:
-                break
+            try:
+                el = page.wait_for_selector(sel, timeout=5000)
+                if el:
+                    # Si es un h3, queremos el padre <a>
+                    if el.evaluate("el => el.tagName === 'H3'"):
+                        first_result = page.evaluate_handle("el => el.closest('a')", el).as_element()
+                    else:
+                        first_result = el
+                    break
+            except:
+                continue
+                
         if not first_result:
+            # Screenshot de debug
+            page.screenshot(path="logs/peliculasgd_google_fail.png")
             raise Exception("Google first result not found")
+            
         random_delay(0.5, 1.5)
-        new_page = self._wait_for_new_page(lambda: first_result.click())
-        self.log("STEP4", f"Landed on: {new_page.url[:60]}...")
-        return new_page
+        return self._wait_for_new_page(page, lambda: first_result.click())
 
     def _step5_human_verification(self, page: Page):
         self.log("STEP5", "Human verification - simulating behavior...")
