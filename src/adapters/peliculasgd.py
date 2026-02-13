@@ -230,67 +230,69 @@ class PeliculasGDAdapter(SiteAdapter):
         self.log("STEP5/6", "Resolving blog verification (timer + ad click)...")
         page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
         
-        # --- NUEVO: Limpieza de Cookie Consent y Overlays ---
-        self.log("STEP5/6", "Cleaning cookie consent and blocking overlays...")
+        # --- Limpieza de overlays ---
         try:
-            # Intentar hacer clic en botones de aceptar cookies comunes
-            cookie_selectors = [
-                 "button:has-text('Aceptar')", "button:has-text('Accept')", 
-                 "button:has-text('Entendido')", "button:has-text('OK')",
-                 ".fc-cta-consent", ".cc-btn", "#cookie-accept"
-            ]
-            for sel in cookie_selectors:
-                try:
-                    btn = page.query_selector(sel)
-                    if btn and btn.is_visible():
-                        btn.click()
-                        self.log("DEBUG", f"Clicked cookie consent button: {sel}")
-                        page.wait_for_timeout(1000)
-                except: pass
-            
-            # Forzar eliminación de overlays y banners de Google Consent
             page.evaluate("""() => {
-                const selectors = [
-                    '.fc-consent-root', '.cc-window', '#onetrust-consent-sdk',
-                    '[id*="google-consent"]', '[class*="consent"]', '[class*="cookie"]'
-                ];
-                selectors.forEach(sel => {
+                ['.fc-consent-root', '.cc-window', '#onetrust-consent-sdk', '[id*="google-consent"]'].forEach(sel => {
                     document.querySelectorAll(sel).forEach(el => el.remove());
                 });
-                // Rehabilitar scroll si fue bloqueado por un popup
                 document.body.style.overflow = 'auto';
             }""")
-        except Exception as e:
-            self.log("WARNING", f"Error cleaning overlays: {e}")
+        except: pass
 
+        # Simulación humana intensiva inicial
+        self.log("STEP5/6", "Simulating human interaction to trigger verification script...")
         simulate_human_behavior(page, intensity="heavy")
         
         start_time = time.time()
         ad_clicked = False
         
-        while time.time() - start_time < 150:
-            selectors = [
-                "button:has-text('Continuar')", 
-                "a.button-s:has-text('Continuar')",
-                "button:has-text('Obtener Vínculo')",
-                "a:has-text('Obtener Vínculo')",
-                "button.button-s" 
-            ]
-            
-            for sel in selectors:
-                btn = page.query_selector(sel)
-                if btn and btn.is_visible():
-                    self.log("STEP5/6", f"Found potential button: {btn.inner_text()}")
-                    opacity = btn.evaluate("el => getComputedStyle(el).opacity")
-                    if float(opacity) > 0.8:
-                        return self._wait_for_new_page(page, lambda: btn.click())
+        while time.time() - start_time < 180:
+            # 1. Buscar en TODOS los marcos (iframes) el botón
+            all_frames = page.frames
+            for frame in all_frames:
+                try:
+                    # Selectores de botones de continuar
+                    selectors = [
+                        "button:has-text('Continuar')", 
+                        "a:has-text('Continuar')",
+                        "div:has-text('Continuar')",
+                        "button:has-text('Obtener Vínculo')",
+                        "a:has-text('Obtener Vínculo')",
+                        "button.button-s"
+                    ]
+                    
+                    for sel in selectors:
+                        btn = frame.query_selector(sel)
+                        if btn and btn.is_visible():
+                            # Comprobar si realmente dice "Continuar" (case insensitive)
+                            inner_text = btn.inner_text().lower()
+                            if "continuar" in inner_text or "vínculo" in inner_text or "vinculo" in inner_text:
+                                is_disabled = btn.get_attribute("disabled") is not None
+                                opacity = btn.evaluate("el => getComputedStyle(el).opacity")
+                                
+                                # Si tiene opacidad baja, es que el timer no terminó
+                                if not is_disabled and float(opacity) > 0.8:
+                                    self.log("STEP5/6", f"Found active button in frame: '{inner_text}'")
+                                    return self._wait_for_new_page(page, lambda: btn.click())
+                except: continue
 
-            if not ad_clicked:
-                self.log("STEP5/6", "Looking for ad to trigger timer...")
+            # 2. Si no lo encontramos habilitado, forzar interacciones
+            if (time.time() - start_time) % 20 < 5:
+                self.log("STEP5/6", "Interacting with page (move/click random) to satisfy humansim check...")
+                page.mouse.move(100, 100)
+                page.mouse.move(500, 500)
+                page.mouse.click(300, 300)
+                page.evaluate("window.scrollBy(0, 300)")
+                random_delay(1, 2)
+                page.evaluate("window.scrollBy(0, -300)")
+
+            # 3. Clic en Ad si es necesario
+            if not ad_clicked and (time.time() - start_time) > 20:
+                self.log("STEP5/6", "Clicking ad area to start/accelerate timer...")
                 ads = page.query_selector_all("ins.adsbygoogle, iframe[src*='googleads'], #click_message")
                 for ad in ads:
                     if ad.is_visible():
-                        self.log("STEP5/6", "Clicking ad to start timer...")
                         try:
                             ad.click()
                             ad_clicked = True
@@ -299,40 +301,64 @@ class PeliculasGDAdapter(SiteAdapter):
                             break
                         except: continue
 
+            # Acelerar timers
             if self.timer_interceptor:
                 self.timer_interceptor.accelerate_timers(page)
                 self.timer_interceptor.skip_peliculasgd_timer(page)
 
             page.wait_for_timeout(5000)
-            self.log("STEP5/6", f"Waiting... {int(time.time() - start_time)}s")
+            self.log("STEP5/6", f"Status: waiting for verification... {int(time.time() - start_time)}s")
             
-        raise Exception("Failed to resolve blog verification (timer timeout)")
+        raise Exception("Failed to resolve human verification (button never became active)")
 
     def _step7_extract_final_link(self, page: Page) -> Optional[Dict]:
         self.log("STEP7", "Extracting final link...")
+        # Darle un margen para cargar
         page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
+        random_delay(2.0, 4.0)
         
         url = page.url.lower()
-        if "drive.google.com" in url or "mega.nz" in url or "mediafire.com" in url:
+        self.log("STEP7", f"Current URL after verification: {url[:70]}...")
+
+        # 1. Si ya estamos en un link de almacenamiento, lo devolvemos
+        if any(prov in url for prov in ["drive.google.com", "mega.nz", "mediafire.com", "1fichier.com"]):
             return {"url": page.url}
             
+        # 2. Buscar en el DOM todos los links que parezcan de almacenamiento
         patterns = [
             "a[href*='drive.google.com']",
             "a[href*='mega.nz']",
             "a[href*='mediafire.com']",
-            "a[href*='1fichier.com']"
+            "a[href*='1fichier.com']",
+            "a[href*='googledrive.com']"
         ]
+        
         for p in patterns:
-            el = page.query_selector(p)
-            if el:
-                href = el.get_attribute("href")
-                if href: return {"url": href}
+            try:
+                el = page.query_selector(p)
+                if el:
+                    href = el.get_attribute("href")
+                    if href:
+                        self.log("STEP7", f"Found link in DOM: {href[:60]}")
+                        return {"url": href}
+            except: continue
                 
+        # 3. Buscar links en el contenido de texto (regex)
         content = page.content()
-        matches = re.findall(r'https?://(?:mega\.nz|drive\.google\.com|mediafire\.com|1fichier\.com)/[^\s"\'<>]+', content)
+        matches = re.findall(r'https?://(?:mega\.nz|drive\.google\.com|mediafire\.com|1fichier\.com|googledrive\.com)/[^\s"\'<>]+', content)
         if matches:
+            self.log("STEP7", f"Found link via regex in content: {matches[0][:60]}")
             return {"url": matches[0]}
             
+        # 4. Escaneo de tráfico de red (si se capturó algo)
+        if self.network_analyzer and self.network_analyzer.captured_links:
+            best = self.network_analyzer.get_best_link()
+            if best:
+                self.log("STEP7", f"Retrieved link from network capture: {best[:60]}")
+                return {"url": best}
+        
+        # 5. Captura final de debug si fallamos
+        page.screenshot(path="logs/peliculasgd_step7_fail.png")
         return None
 
     def _close_trash_tabs(self, main_page: Page):

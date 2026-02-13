@@ -85,6 +85,7 @@ class TimerInterceptor:
             // 2. Buscar elementos del DOM que parecen contadores y reducirlos
             const timerEls = document.querySelectorAll('.timer, #timer, #counter, .countdown, [id*="time"], [class*="time"]');
             timerEls.forEach(el => {
+                if (!el || typeof el.innerText !== 'string') return;
                 const match = el.innerText.match(/(\\d+)/);
                 if (match) {
                     const currentValue = parseInt(match[1]);
