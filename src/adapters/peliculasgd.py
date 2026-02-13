@@ -9,6 +9,7 @@ from .base import SiteAdapter
 from matcher import LinkOption, LinkMatcher
 from config import TIMEOUT_NAV, TIMEOUT_ELEMENT, AD_WAIT_SECONDS
 from human_sim import random_delay, simulate_human_behavior, human_mouse_move
+from url_parser import extract_metadata_from_url
 import time
 
 
@@ -71,11 +72,17 @@ class PeliculasGDAdapter(SiteAdapter):
             # Step 7: Volver a intermediate1 y obtener link
             final_link = self._step7_return_to_intermediate()
 
+            # Extraer metadata de la URL original (calidad, formato, idioma)
+            url_metadata = extract_metadata_from_url(url)
+            self.log("METADATA", f"Extracted from URL: quality={url_metadata['quality']}, format={url_metadata['format']}, lang={url_metadata['language']}")
+
             # Crear LinkOption para el link final
             link_option = LinkOption(
                 url=final_link,
-                text="Final link from peliculasgd.net",
+                text=f"PeliculasGD - {url_metadata['quality'] or 'N/A'} {url_metadata['format'] or ''}",
                 provider=self._detect_provider(final_link),
+                quality=url_metadata['quality'] or "",
+                format=url_metadata['format'] or ""
             )
 
             self.log("RESULT", f"Resolved: {link_option.url[:100]}")

@@ -272,12 +272,33 @@ class HackstoreAdapter(SiteAdapter):
                   self.log("WARNING", f"Failed to query h3 selectors: {e}")
                   headings = []
               
+              # Si no hay h3, intentar con otras etiquetas
+              if not headings or len(headings) == 0:
+                  self.log("EXTRACT", "No h3 found, trying h2, h4, div.quality, .download-section...")
+                  try:
+                      alternative_selectors = ["h2", "h4", "div[class*='quality']", "div[class*='download']", ".quality-section"]
+                      for selector in alternative_selectors:
+                          headings = page.query_selector_all(selector)
+                          if headings and len(headings) > 0:
+                              self.log("EXTRACT", f"Found {len(headings)} elements with selector: {selector}")
+                              break
+                  except Exception as e:
+                      self.log("WARNING", f"Alternative selectors also failed: {e}")
+                      headings = []
+              
               qualities_found = []
               
               for heading in headings:
                   try:
                       text = heading.inner_text().strip()
-                      if any(q in text.lower() for q in ["1080p", "720p", "480p", "dvdrip", "web-dl", "bluray", "remux", "1080", "720", "480"]):
+                      # Patrones más amplios para detectar calidades
+                      quality_patterns = [
+                          "2160p", "4k", "1080p", "720p", "480p", "360p",
+                          "1080", "720", "480",
+                          "dvdrip", "web-dl", "webdl", "bluray", "blu-ray", "brrip", "bdrip",
+                          "remux", "webrip", "hdtv", "hdrip"
+                      ]
+                      if any(q in text.lower() for q in quality_patterns):
                           qualities_found.append((text, heading))
                           self.log("EXTRACT", f"Found quality section: {text}")
                   except Exception as e:

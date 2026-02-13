@@ -15,7 +15,6 @@ from network_analyzer import NetworkAnalyzer
 from dom_analyzer import DOMAnalyzer
 from timer_interceptor import TimerInterceptor
 from stealth_config import apply_stealth_to_context, setup_popup_handler, STEALTH_AVAILABLE
-import timer_interceptor
 from vision_fallback import VisionFallback
 import time
 
@@ -160,6 +159,7 @@ class LinkResolver:
                     # Configurar Network / DOM / Timer Analyzers
                     network_analyzer = NetworkAnalyzer()
                     dom_analyzer = DOMAnalyzer()
+                    timer_interceptor = TimerInterceptor()
                     vision_fallback = VisionFallback() if self.use_vision_fallback else None
                     
                     adapter.set_analyzers(
