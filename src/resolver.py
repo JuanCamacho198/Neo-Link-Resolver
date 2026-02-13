@@ -19,14 +19,15 @@ from vision_fallback import VisionFallback
 from stealth_config import apply_stealth_to_context, setup_popup_handler, STEALTH_AVAILABLE
 import time
 import random
+import os
 
 # User agents realistas para rotación
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.225 Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/UD1A.230805.019) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.210 Mobile Safari/537.36",
 ]
 
 class LinkResolver:
@@ -35,7 +36,7 @@ class LinkResolver:
     Incluye retry logic con backoff exponencial para recuperarse de fallos transitorios.
     """
 
-    def __init__(self, headless: bool = True, screenshot_callback: Optional[Callable] = None, max_retries: int = 2):
+    def __init__(self, headless: bool = True, screenshot_callback: Optional[Callable] = None, max_retries: int = 2, use_persistent: bool = False):
         self.headless = headless
         self.logger = get_logger()
         self.screenshot_callback = screenshot_callback
@@ -45,6 +46,12 @@ class LinkResolver:
         self.use_network_interception = True
         self.accelerate_timers = True
         self.use_vision_fallback = False  # Desactivado por defecto
+        self.use_persistent = use_persistent
+        self.user_data_dir = os.path.join(os.getcwd(), "data", "browser_profile")
+        
+        # Crear carpeta de perfil si no existe
+        if self.use_persistent and not os.path.exists(self.user_data_dir):
+            os.makedirs(self.user_data_dir, exist_ok=True)
 
     def resolve(
         self,
@@ -53,6 +60,7 @@ class LinkResolver:
         format_type: str = "WEB-DL",
         providers: list = None,
         language: str = "latino",
+        mobile: bool = False,
     ) -> Optional[LinkOption]:
         """
         Resuelve un link con los criterios especificados.
@@ -64,7 +72,7 @@ class LinkResolver:
         # Intentar resolver con retry
         for attempt in range(self.max_retries + 1):
             try:
-                result = self._resolve_internal(url, quality, format_type, providers, language)
+                result = self._resolve_internal(url, quality, format_type, providers, language, mobile)
                 return result
             except Exception as e:
                 if attempt < self.max_retries:
@@ -83,6 +91,7 @@ class LinkResolver:
         format_type: str = "WEB-DL",
         providers: list = None,
         language: str = "latino",
+        mobile: bool = False,
     ) -> Optional[LinkOption]:
         if providers is None:
             providers = ["utorrent", "drive.google"]
@@ -130,35 +139,53 @@ class LinkResolver:
                         "--disable-backgrounding-occluded-windows",
                         "--disable-renderer-backgrounding",
                     ]
-                    
-                    browser = p.chromium.launch(
-                        headless=self.headless,
-                        args=chrome_args,
-                    )
-                    self.logger.success("Browser launched successfully!")
-                except Exception as e:
-                    self.logger.error(f"Failed to launch browser: {e}")
-                    self.logger.error("Tip: Run 'python -m playwright install chromium' to install the browser")
-                    import traceback
-                    self.logger.error(traceback.format_exc())
-                    return None
 
-                try:
-                    # Seleccionar User-Agent aleatorio
-                    user_agent = random.choice(USER_AGENTS)
+                    # Seleccionar User-Agent aleatorio o forzar móvil
+                    if mobile:
+                        user_agent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1"
+                        viewport = {"width": 390, "height": 844}
+                        self.logger.info("Mobile emulation ENABLED (iPhone 15 Pro style)")
+                    else:
+                        desktop_uas = [ua for ua in USER_AGENTS if "iPhone" not in ua and "Android" not in ua]
+                        user_agent = random.choice(desktop_uas if desktop_uas else USER_AGENTS)
+                        viewport = {"width": 1366, "height": 768}
+                    
                     self.logger.info(f"Using UA: {user_agent[:50]}...")
 
-                    context = browser.new_context(
-                        viewport={"width": 1366, "height": 768},
-                        user_agent=user_agent,
-                        java_script_enabled=True,
-                        accept_downloads=True
-                    )
+                    if self.use_persistent:
+                        self.logger.info(f"Using persistent profile in: {self.user_data_dir}")
+                        context = p.chromium.launch_persistent_context(
+                            user_data_dir=self.user_data_dir,
+                            headless=self.headless,
+                            args=chrome_args,
+                            viewport=viewport,
+                            user_agent=user_agent,
+                            java_script_enabled=True,
+                            accept_downloads=True,
+                            has_touch=mobile,
+                            is_mobile=mobile
+                        )
+                        browser = None # En modo persistente el contexto maneja el browser
+                    else:
+                        browser = p.chromium.launch(
+                            headless=self.headless,
+                            args=chrome_args,
+                        )
+                        self.logger.success("Browser launched successfully!")
+                        
+                        context = browser.new_context(
+                            viewport=viewport,
+                            user_agent=user_agent,
+                            java_script_enabled=True,
+                            accept_downloads=True,
+                            has_touch=mobile,
+                            is_mobile=mobile
+                        )
                     
                     # 1. Instanciar analizadores primero
                     network_analyzer = NetworkAnalyzer()
                     dom_analyzer = DOMAnalyzer()
-                    timer_interceptor = TimerInterceptor()
+                    timer_interceptor = TimerInterceptor(speed_factor=20.0)
                     shortener_resolver = ShortenerChainResolver(network_analyzer, timer_interceptor)
                     vision_fallback = VisionFallback() if self.use_vision_fallback else None
 
