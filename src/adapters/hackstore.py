@@ -366,38 +366,68 @@ class HackstoreAdapter(SiteAdapter):
             
             # Ahora buscar los botones de descarga REALES (los que aparecen tras expandir)
             self.log("EXTRACT", "Searching for provider-specific download buttons...")
-            page.wait_for_timeout(2000)
-            all_elements = page.query_selector_all("button, a")
+            page.wait_for_timeout(5000)
             
-            for el in all_elements:
+            body_text = page.inner_text("body")
+            sample_text = body_text[:200].replace("\n", " ")
+            self.log("DEBUG", f"Page body length: {len(body_text)}. Sample: {sample_text}")
+            if "MEGA" in body_text.upper() or "UTORRENT" in body_text.upper():
+                 self.log("DEBUG", "Provider keywords FOUND in body text!")
+            else:
+                 self.log("WARNING", "Provider keywords NOT found in body text. Expansion might have failed.")
+            
+            # Buscar cualquier cosa que parezca clickeable
+            # Usar JS para encontrar elementos que contengan nombres de proveedores
+            potential_elements_data = page.evaluate("""() => {
+                const results = [];
+                const providers = ["MEGA", "MEDIAFIRE", "UTORRENT", "1FICHIER", "UPTOBOX", "UPSTREAM", "DRIVE", "GDRIVE", "MEDIA-FIRE", "DESCARGAR"];
+                document.querySelectorAll('a, button, div, span, b, strong').forEach(el => {
+                    const text = (el.innerText || "").trim().toUpperCase();
+                    if (text.length > 0 && text.length < 50) {
+                        const hasProvider = providers.some(p => text.includes(p));
+                        if (hasProvider) {
+                            // Solo queremos las "hojas" del DOM que tengan el texto
+                            if (el.children.length === 0 || (el.children.length === 1 && el.children[0].tagName === 'IMG')) {
+                                const rect = el.getBoundingClientRect();
+                                if (rect.width > 0 && rect.height > 0) {
+                                    results.push({
+                                        text: text,
+                                        tagName: el.tagName,
+                                        isLink: el.tagName === 'A',
+                                        href: el.tagName === 'A' ? el.href : null
+                                    });
+                                }
+                            }
+                        }
+                    }
+                });
+                return results;
+            }""")
+            
+            # Re-localizar los elementos en Python para poder clickarlos
+            for item in potential_elements_data:
                 try:
-                    el_text = (el.text_content() or "").strip().upper()
+                    text = item['text']
+                    if "VER ENLACES" in text: continue
                     
-                    # Ignorar expansores (los que ya clickamos) y textos vacíos
-                    if not el_text or "VER ENLACES" in el_text: continue
+                    # Buscar el elemento real por texto
+                    selector = f"{item['tagName'].lower()}:has-text('{text}')"
+                    if item['tagName'] == 'A' and item['href']:
+                        el = page.query_selector(f"a[href='{item['href']}']")
+                    else:
+                        # Buscar por texto exacto es más seguro
+                        elements = page.query_selector_all(item['tagName'].lower())
+                        el = None
+                        for candidate in elements:
+                            if candidate.inner_text().strip().upper() == text:
+                                el = candidate
+                                break
                     
-                    # Criterio más estricto
-                    providers_keywords = ["MEGA", "MEDIAFIRE", "UTORRENT", "FICHIER", "DRIVE", "UPTOBOX", "UPSTREAM", "STREAM"]
-                    is_download = "DESCARGAR" in el_text or "DOWNLOAD" in el_text or any(p in el_text for p in providers_keywords)
+                    if not el or not el.is_visible(): continue
                     
-                    if not is_download:
-                        continue
-                        
-                    if len(el_text) > 30: # Un botón real de proveedor no suele ser tan largo
-                        continue
+                    provider = self._identify_provider(text, providers_all)
                     
-                    self.log("DEBUG", f"Found valid download button: '{el_text}'")
-
-                    # Obtener contexto (proveedor y calidad)
-                    # Subir un par de niveles para ver dónde está el botón encerrado
-                    container = page.evaluate_handle("el => el.closest('.flex, .grid, .row, tr, div[class*=\"link\"]') || el.parentElement", el)
-                    context_text = container.as_element().inner_text().lower() if container else ""
-                    
-                    provider = self._identify_provider(el_text, providers_all) # Preferir el texto del botón mismo
-                    if provider == el_text.lower(): # Si no identificó un proveedor conocido
-                         provider = self._identify_provider(context_text, providers_all)
-
-                    # Identificar calidad subiendo más niveles
+                    # Identificar calidad
                     quality = page.evaluate("""(el) => {
                         let curr = el;
                         for (let i = 0; i < 25; i++) {
@@ -409,13 +439,14 @@ class HackstoreAdapter(SiteAdapter):
                         }
                         return "Unknown";
                     }""", el)
-                    
+
                     links.append({
                         "url": "btn_click",
                         "quality": quality,
                         "provider": provider,
                         "handle": el,
-                        "name": f"{provider} ({quality})"
+                        "name": f"{provider} ({quality})",
+                        "href": item.get('href')
                     })
                 except: continue
 
@@ -431,37 +462,54 @@ class HackstoreAdapter(SiteAdapter):
                 item_name = link.get("name", "Unknown Item")
                 
                 self.log("EXTRACT", f"Attempting to resolve {item_name}...")
+                current_url = page.url
+                
                 try:
                     target_page = None
-                    # Intentar hasta 2 veces (a veces el primer click abre un popup bloqueado y el segundo el link)
-                    for attempt in range(2):
-                        try:
-                            with page.context.expect_page(timeout=7000) as new_page_info:
-                                # Asegurar que el botón es visible y darle click
-                                btn.scroll_into_view_if_needed()
-                                try:
-                                    btn.click(timeout=4000)
-                                except:
-                                    # Si falla el click normal, limpiar overlays y forzar
-                                    page.evaluate("() => document.querySelectorAll('.fixed, .backdrop-blur-sm').forEach(el => el.remove())")
+                    # Intentar detectar si se abre en la misma pestaña o en una nueva
+                    try:
+                        with page.context.expect_page(timeout=5000) as new_page_info:
+                            btn.scroll_into_view_if_needed()
+                            # Click con clearing de overlays
+                            try:
+                                btn.click(timeout=3000)
+                            except:
+                                page.evaluate("() => document.querySelectorAll('.fixed, .backdrop-blur-sm').forEach(el => el.remove())")
+                                btn.click(force=True)
+                        
+                        target_page = new_page_info.value
+                        self.log("NAV", f"New tab detected: {target_page.url[:60]}")
+                    except:
+                        # No se abrió nueva pestaña. ¿Cambió la URL de la página actual?
+                        page.wait_for_timeout(2000)
+                        if page.url != current_url:
+                            self.log("NAV", f"Same tab navigation detected: {page.url[:60]}")
+                            target_page = page 
+                        else:
+                            # Intentar un segundo click (popunder bypass)
+                            self.log("DEBUG", "No navigation detected. Trying second click...")
+                            try:
+                                with page.context.expect_page(timeout=5000) as new_page_info2:
                                     btn.click(force=True)
-                            
-                            target_page = new_page_info.value
-                            break # Éxito
-                        except:
-                            self.log("DEBUG", f"Attempt {attempt+1} failed to open new page. Retrying click...")
-                            page.wait_for_timeout(1000)
+                                target_page = new_page_info2.value
+                            except:
+                                if page.url != current_url:
+                                    target_page = page
                     
                     if not target_page:
-                        self.log("WARNING", f"Could not trigger new tab for {item_name}")
+                        self.log("WARNING", f"Could not trigger navigation for {item_name}")
                         continue
 
-                    # Procesar la nueva página
-                    target_page.wait_for_load_state("domcontentloaded", timeout=15000)
+                    # Procesar la página de destino (ya sea la nueva o la misma)
+                    # Si es la misma página, NO debemos cerrarla al final!
+                    is_new_tab = target_page != page
+                    
+                    try:
+                        target_page.wait_for_load_state("domcontentloaded", timeout=10000)
+                    except: pass
+                    
                     final_url = target_page.url
                     
-                    self.log("NAV", f"New tab opened: {final_url[:60]}")
-
                     if self.shortener_resolver and self.shortener_resolver.is_shortener(final_url):
                         self.log("NAV", f"    Resolving shortener for {item_name}...")
                         resolved = self.shortener_resolver.resolve(final_url, target_page)
@@ -477,9 +525,15 @@ class HackstoreAdapter(SiteAdapter):
                         })
                         self.log("SUCCESS", f"    Resolved: {final_url[:60]}")
                     
-                    target_page.close()
-                    # Si ya conseguimos uno de buena calidad, podemos parar o seguir
-                    # Por ahora seguimos para sacar todos los posibles
+                    if is_new_tab:
+                        target_page.close()
+                    else:
+                        # Si navegamos en la misma pestaña, tenemos que volver atrás para el siguiente link
+                        page.goto(current_url, wait_until="domcontentloaded")
+                        # Re-expandir los botones (esto es lento pero seguro)
+                        page.evaluate("() => document.querySelectorAll('button').forEach(b => { if(b.innerText.includes('VER ENLACES')) b.click(); })")
+                        page.wait_for_timeout(1000)
+
                 except Exception as e:
                     self.log("WARNING", f"    Failed to process {item_name}: {e}")
 
