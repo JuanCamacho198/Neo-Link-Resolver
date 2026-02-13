@@ -266,14 +266,20 @@ class PeliculasGDAdapter(SiteAdapter):
                         '.fc-consent-root', '.cc-window', '#onetrust-consent-sdk', 
                         '[id*="google-consent"]', '.asap-cookie-consent', 
                         '.cmplz-cookiebanner', '.cmplz-blocked-content-notice',
-                        '#cmplz-cookiebanner-container', '.cmplz-soft-cookiewall'
+                        '#cmplz-cookiebanner-container', '.cmplz-soft-cookiewall',
+                        '.cookie-notice-container', '#cookie-law-info-bar'
                     ];
                     selectors.forEach(sel => {
                         const els = document.querySelectorAll(sel);
-                        els.forEach(el => el.remove());
+                        els.forEach(el => {
+                            el.style.display = 'none';
+                            el.remove();
+                        });
                     });
-                    const acceptBtn = document.querySelector('.cmplz-btn.cmplz-accept, .cc-btn.cc-allow, #onetrust-accept-btn-handler');
-                    if (acceptBtn) acceptBtn.click();
+                    // Quitar overlays oscuros que bloquean clics
+                    const blockers = document.querySelectorAll('.cc-overlay, .cmplz-overlay');
+                    blockers.forEach(b => b.remove());
+                    
                     document.body.style.overflow = 'auto';
                     document.documentElement.style.overflow = 'auto';
                 }""")
@@ -287,6 +293,10 @@ class PeliculasGDAdapter(SiteAdapter):
         self.log("STEP5/6", "Simulating human interaction to trigger verification script...")
         simulate_human_behavior(page, intensity="heavy")
         
+        # Clic inicial en cualquier área vacía como pide el blog
+        try: page.mouse.click(100, 100)
+        except: pass
+
         start_time = time.time()
         ad_clicked = False
         
@@ -306,12 +316,10 @@ class PeliculasGDAdapter(SiteAdapter):
 
             kill_cookies() # Seguir matando popups que reaparezcan
 
-            # 1. Buscar el botón de continuar
-            found_any_potential = False
+            # 1. Buscar el botón de continuar (ESTRICTO)
             for frame in page.frames:
                 if page.is_closed(): break
                 try:
-                    # Selectores de botones de este blog específico
                     selectors = [
                         "button:has-text('Continuar')", 
                         "a:has-text('Continuar')",
@@ -319,35 +327,32 @@ class PeliculasGDAdapter(SiteAdapter):
                         "a:has-text('Obtener Vínculo')",
                         "button:has-text('Ir al enlace')",
                         "a:has-text('Ir al enlace')",
-                        "button:has-text('Get Link')",
-                        "a:has-text('Get Link')",
-                        "a[href*='saboresmexico.com/postres']", 
-                        ".button-s",
-                        "a.btn-link",
+                        "a:has-text('clic aquí para continuar')",
+                        "button:has-text('clic aquí para continuar')",
                         "#generar_link",
                         ".get-link"
                     ]
                     
                     for sel in selectors:
                         try:
-                            # Buscar SIEMPRE, incluso si no es visible aún para debug
                             btn = frame.query_selector(sel)
-                            if btn:
-                                found_any_potential = True
-                                if btn.is_visible():
-                                    inner_text = (btn.inner_text() or "").lower()
-                                    opacity = btn.evaluate("el => getComputedStyle(el).opacity")
-                                    is_disabled = btn.get_attribute("disabled") is not None
-                                    
-                                    # Si el botón es visible y activo, CLICK
-                                    if not is_disabled and float(opacity) > 0.5: # Bajamos un poco el umbral de opacidad por si acaso
+                            if btn and btn.is_visible():
+                                inner_text = (btn.inner_text() or "").lower()
+                                opacity = btn.evaluate("el => getComputedStyle(el).opacity")
+                                is_disabled = btn.get_attribute("disabled") is not None
+                                
+                                # Solo clickear si tiene texto relevante o es un ID conocido
+                                if not is_disabled and float(opacity) > 0.5:
+                                    if any(tok in inner_text for tok in ["continuar", "vínculo", "vinculo", "enlace", "link", "clic"]) or "generar" in sel:
                                         self.log("STEP5/6", f"Found active button: '{inner_text}' via {sel}")
-                                        # Capturar si abre nueva pestaña
-                                        try:
-                                            return self._wait_for_new_page(page, lambda: btn.click(force=True, timeout=5000))
-                                        except:
-                                            # Si no abrió nueva pestaña pero navegó, _wait_for_new_page lo maneja si devolvemos el mismo tab
-                                            return page
+                                        res_p = self._wait_for_new_page(page, lambda: btn.click(force=True, timeout=5000))
+                                        # Si el click nos llevó a Facebook o algo raro, no salimos de este paso
+                                        if res_p and "facebook.com" in res_p.url:
+                                            self.log("DEBUG", "Clicked something that led to Facebook. Staying in Step 5/6.")
+                                            try: res_p.close()
+                                            except: pass
+                                            continue
+                                        return res_p
                         except: continue
                 except: continue
 
@@ -360,19 +365,29 @@ class PeliculasGDAdapter(SiteAdapter):
             # 2. Clic en sidebar REAL (evitando ads de MGID/sponsored)
             if not ad_clicked and elapsed > 2.0:
                 try:
-                    sidebar_article_links = page.query_selector_all(".last-post-sidebar a, .article-loop a")
+                    # Usar el selector exacto que el usuario sugirió
+                    sidebar_article_links = page.query_selector_all(".last-post-sidebar .article-loop a")
                     
                     target_link = None
                     for link in sidebar_article_links:
                         try:
-                            # Verificar que NO sea un ad de MGID o similar
+                            # Verificar que sea un link interno de saboresmexico
+                            href = (link.get_attribute("href") or "").lower()
+                            if "saboresmexico.com" not in href or "mgid" in href or "clck." in href: 
+                                continue
+
+                            # Verificar que NO sea un ad de MGID o similar (REFORZADO)
                             is_ad = page.evaluate("""(el) => {
                                 let curr = el;
                                 while(curr && curr !== document.body) {
                                     const cls = (curr.className || "").toString().toLowerCase();
                                     const id = (curr.id || "").toString().toLowerCase();
+                                    const rel = (curr.getAttribute('rel') || "").toLowerCase();
+                                    const dataTeaser = curr.getAttribute('data-teaser-link');
+                                    
                                     if (cls.includes('mgbox') || cls.includes('mgline') || cls.includes('teaser') || 
-                                        cls.includes('sponsored') || id.includes('mgid')) return true;
+                                        cls.includes('sponsored') || id.includes('mgid') || 
+                                        rel.includes('sponsored') || dataTeaser === 'true') return true;
                                     curr = curr.parentElement;
                                 }
                                 return false;
@@ -383,10 +398,21 @@ class PeliculasGDAdapter(SiteAdapter):
                         except: continue
 
                     if target_link:
-                        self.log("STEP5/6", f"Clicking REAL sidebar article to trigger verification: {target_link.get_attribute('href')}")
+                        self.log("STEP5/6", f"Clicking REAL sidebar article: {target_link.get_attribute('href')}")
+                        # Antes del clic, un "clic" en área vacía para despertar el script
+                        page.mouse.click(50, 50)
+                        
                         target_link.click(force=True, timeout=3000)
                         ad_clicked = True
-                        page.wait_for_timeout(3000) # Dejar que cargue la navegación
+                        page.wait_for_timeout(3000)
+                        
+                        # "Mueve el mouse, haz scroll, y haz clic en cualquier area"
+                        self.log("STEP5/6", "Performing requested human verification actions (scroll + click area)...")
+                        page.mouse.wheel(0, 800)
+                        page.wait_for_timeout(500)
+                        page.mouse.wheel(0, -300)
+                        page.mouse.click(300, 300) # Clic en área vacía
+                        kill_cookies() # El usuario dijo cerrar popup cookies otra vez
                 except Exception as e:
                     self.log("DEBUG", f"Error clicking sidebar: {e}")
 
@@ -394,9 +420,12 @@ class PeliculasGDAdapter(SiteAdapter):
             if int(elapsed) % 15 == 0: 
                 try: 
                     if not page.is_closed():
-                        page.mouse.wheel(0, 100)
-                        page.wait_for_timeout(100)
-                        page.mouse.wheel(0, -100)
+                        page.mouse.wheel(0, 150)
+                        page.wait_for_timeout(200)
+                        page.mouse.wheel(0, -150)
+                        # Clic en un área neutral para satisfacer "haz clic en cualquier area"
+                        page.mouse.click(50, 400) 
+                        kill_cookies() # El usuario insiste en esto
                 except: pass
 
             try:
@@ -414,20 +443,44 @@ class PeliculasGDAdapter(SiteAdapter):
 
     def _step7_extract_final_link(self, page: Page) -> Optional[Dict]:
         self.log("STEP7", "Extracting final link...")
-        page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
         
-        # Simulación humana inicial
-        simulate_human_behavior(page, intensity="low")
+        # Verificar si la página sigue viva
+        if page.is_closed():
+            for p in self.context.pages:
+                if not p.is_closed() and ("saboresmexico" in p.url or "mediafire" in p.url or "mega" in p.url):
+                    page = p
+                    break
+        
+        try:
+            page.wait_for_load_state("domcontentloaded", timeout=10000)
+        except: pass
+        
+        # Simulación humana inicial con cuidado
+        try:
+            if not page.is_closed():
+                simulate_human_behavior(page, intensity="low")
+        except: pass
         
         start_time = time.time()
         while time.time() - start_time < 60: # 60s para el paso final
-            if page.is_closed(): break
+            if page.is_closed():
+                # Intentar buscar la página de descarga en otras pestañas
+                for p in self.context.pages:
+                    if not p.is_closed() and any(x in p.url.lower() for x in ["drive.google", "mega.nz", "mediafire", "1fichier"]):
+                        self.log("STEP7", f"Found link in another tab: {p.url[:60]}")
+                        return {"url": p.url}
+                break
             
             # Matar cookies/popups de nuevo
-            self.log("STEP7", f"Waiting for final link... {int(time.time() - start_time)}s")
             try:
                 page.evaluate("() => { const b = document.querySelector('.fc-consent-root, .cmplz-cookiebanner'); if(b) b.remove(); }")
             except: pass
+
+            # Si pasan más de 20s y no hay nada, intentar clic neutral
+            if time.time() - start_time > 20 and int(time.time() - start_time) % 15 == 0:
+                self.log("STEP7", "Stuck? Clicking neutral area to trigger possible timers...")
+                try: page.mouse.click(50, 500)
+                except: pass
 
             url = page.url.lower()
             
@@ -441,13 +494,11 @@ class PeliculasGDAdapter(SiteAdapter):
                     selectors = [
                         "a:has-text('Obtener Vínculo')", 
                         "button:has-text('Obtener Vínculo')",
+                        "a:has-text('Descargar Aqui')", 
+                        "button:has-text('Descargar Aqui')",
                         "a:has-text('Ir al enlace')", 
                         "button:has-text('Ir al enlace')",
-                        "a:has-text('Continuar')",
-                        "button:has-text('Continuar')",
-                        "a:has-text('Descargar Aqui')", 
                         "a.btn-download",
-                        "a.btn-link",
                         "#generar_link"
                     ]
                     for sel in selectors:
@@ -457,13 +508,20 @@ class PeliculasGDAdapter(SiteAdapter):
                                 inner_text = (btn.inner_text() or "").lower()
                                 opacity = btn.evaluate("el => getComputedStyle(el).opacity")
                                 # Si dice "espera", no clickear aún
-                                if "espera" in inner_text or "generando" in inner_text:
+                                if "espera" in inner_text or "generando" in inner_text or "por favor" in inner_text:
                                     continue
                                 if float(opacity) > 0.5:
-                                    self.log("STEP7", f"Found active link button '{inner_text}' in frame. Clicking...")
+                                    self.log("STEP7", f"Found active link button '{inner_text}' via {sel}")
                                     # Intentar clickear y esperar nueva página o navegación
                                     try:
-                                        return self._wait_for_new_page(page, lambda: btn.click(force=True, timeout=5000))
+                                        res_p = self._wait_for_new_page(page, lambda: btn.click(force=True, timeout=5000))
+                                        if res_p and res_p != page:
+                                            # Si abrió una nueva página, ver si tiene el link
+                                            new_url = res_p.url.lower()
+                                            if any(x in new_url for x in ["drive.google", "mega.nz", "mediafire", "1fichier", "googledrive"]):
+                                                return {"url": res_p.url}
+                                            # Si no es el link, dejarla abierta y seguir buscando
+                                        page.wait_for_timeout(2000)
                                     except: pass
                         except: continue
                 except: continue
