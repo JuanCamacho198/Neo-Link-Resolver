@@ -23,7 +23,7 @@ class NetworkAnalyzer:
         self.captured_links: List[Dict] = []
         self.seen_urls: Set[str] = set()
         
-        # Patrones de filtrado "Basic" (inspirado en EasyList/uBOL)
+        # Patrones de filtrado "Basic+" (inspirado en EasyList/uBOL/uBlock)
         self.ad_patterns = [
             r"https?://[^/]*\.(?:doubleclick\.net|googlesyndication\.com|adservice\.google\.com)",
             r"https?://[^/]*\.(?:amazon-adsystem\.com|clickadu\.com|popads\.net|propellerads\.com)",
@@ -34,16 +34,28 @@ class NetworkAnalyzer:
             r"https?://[^/]*\.(?:monetag\.com|criteo\.com|pubmatic\.com|ad-maven\.com)",
             r"https?://[^/]*\.(?:impactify\.io|zedo\.com|adcash\.com|popmyads\.com|plugrush\.com)",
             r"https?://[^/]*\.(?:google-analytics\.com|googletagmanager\.com|statcounter\.com)",
-            r"https?://[^/]*\.(?:facebook\.net|connect\.facebook\.net/en_US/sdk\.js)"
+            r"https?://[^/]*\.(?:facebook\.net|connect\.facebook\.net/en_US/sdk\.js)",
+            r"https?://[^/]*\.(?:hotjar\.com|mouseflow\.com|luckyorange\.com|fullstory\.com)",
+            r"https?://[^/]*\.(?:scorecardresearch\.com|quantserve\.com|tns-counter\.ru)",
+            r"https?://[^/]*\.(?:histats\.com|clicky\.com|amplitude\.com|mixpanel\.com)",
+            r"https?://[^/]*\.(?:yandex\.ru/clck|mc\.yandex\.ru|top-fwz1\.mail\.ru)",
+            r"https?://[^/]*\.(?:revcontent\.com|buysellads\.com|carbonads\.net)"
         ]
         
-        # Dominios base (legacy fallback)
+        # Dominios base extendidos
         self.ad_domains = [
             'doubleclick.net', 'googlesyndication.com', 'adservice.google.com',
             'amazon-adsystem.com', 'clickadu.com', 'popads.net', 'propellerads.com',
             'exoclick.com', 'adsterra.com', 'hilltopads.net', 'trafficjunky.com',
             'onclickads.net', 'a-ads.com', 'adform.net', 'adnxs.com', 'mgid.com',
-            'google-analytics.com', 'googletagmanager.com', 'facebook.net'
+            'google-analytics.com', 'googletagmanager.com', 'facebook.net',
+            'outbrain.com', 'taboola.com', 'juicyads.com', 'popcash.net',
+            'monetag.com', 'criteo.com', 'pubmatic.com', 'ad-maven.com',
+            'impactify.io', 'zedo.com', 'adcash.com', 'popmyads.com', 'plugrush.com',
+            'adnxs.com', 'smartadserver.com', 'bidswitch.net', 'openx.net',
+            'rubiconproject.com', 'pubmatic.com', 'indexww.com', 'mookie1.com',
+            'casalemedia.com', 'adnxs.com', 'yieldmo.com', 'teads.tv',
+            'gumgum.com', 'triplelift.com', 'stickyadstv.com', 'spotxchange.com'
         ]
         self.download_domains = [
             'mega.nz', 'mega.co.nz', 'mega.io', 'drive.google.com', 'docs.google.com',
@@ -106,25 +118,47 @@ class NetworkAnalyzer:
         return any(domain in url_lower for domain in self.download_domains)
 
     def get_basic_blocking_script(self) -> str:
-        """Retorna un script de inyección para bloqueo cosmético (Basic CSS Hiding)."""
-        # Selectores comunes de ads usados en EasyList
+        """
+        Retorna un script de inyección para bloqueo cosmético (Basic CSS Hiding).
+        Inspirado en las reglas esenciales de uBlock Origin Lite.
+        """
+        # Selectores comunes de ads, trackers y widgets intrusivos
         selectors = [
             ".adsbygoogle", ".ad-container", ".ad-slot", "[id^='google_ads_']",
             "#mgid-widget", ".mgid-container", ".outbrain-widget", ".taboola-ads",
             ".pop-ads", ".ad-banner", ".sidebar-ads", ".ad-wrapper",
-            ".fc-consent-root", ".cmplz-cookiebanner", ".cc-window"
+            ".fc-consent-root", ".cmplz-cookiebanner", ".cc-window", ".cmplz-overlay",
+            ".google-ad", ".ads-box", ".sponsored-links", ".article-ads",
+            "amp-ad", "amp-embed[type='adsense']", ".ad-placer",
+            "#cookie-law-info-bar", "#onetrust-consent-sdk", ".qc-cmp2-container",
+            ".ad-zone", ".ad-v-container", ".ad-h-container"
         ]
         selectors_str = ", ".join(selectors)
         
         return f"""
         (function() {{
-            const style = document.createElement('style');
-            style.textContent = `{selectors_str} {{ display: none !important; visibility: hidden !important; pointer-events: none !important; opacity: 0 !important; }}`;
-            document.head.appendChild(style);
+            const blockAds = () => {{
+                const styleId = 'neo-link-blocker-style';
+                if (!document.getElementById(styleId)) {{
+                    const style = document.createElement('style');
+                    style.id = styleId;
+                    style.textContent = `{selectors_str} {{ display: none !important; visibility: hidden !important; pointer-events: none !important; opacity: 0 !important; height: 0 !important; margin: 0 !important; padding: 0 !important; }}`;
+                    document.head.appendChild(style);
+                }}
+            }};
+
+            blockAds();
+            // Ejecutar periódicamente para sitios que inyectan ads dinámicamente
+            setInterval(blockAds, 2000);
             
-            // Bloqueador de popups básico
-            window.open = function() {{ 
-                console.log("Blocked attempt to open popup");
+            // Bloqueador de popups agresivo
+            const originalOpen = window.open;
+            window.open = function(url, name, features) {{ 
+                console.log("Blocked attempt to open popup: " + url);
+                // Solo permitir si el URL parece legítimo (ej. google oauth, mega login)
+                if (url && (url.includes('google.com/o/oauth2') || url.includes('mega.nz/login'))) {{
+                    return originalOpen(url, name, features);
+                }}
                 return null; 
             }};
         }})();
