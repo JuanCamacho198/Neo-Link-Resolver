@@ -13,7 +13,7 @@ from logger import get_logger
 class NetworkAnalyzer:
     """
     Analiza el tráfico de red para detectar links reales vs ads.
-    No requiere Vision APIs.
+    Implementa un filtrado básico tipo uBlock Origin Lite (Basic).
     """
     
     def __init__(self, config_path: str = "config/ad_domains.json"):
@@ -23,12 +23,27 @@ class NetworkAnalyzer:
         self.captured_links: List[Dict] = []
         self.seen_urls: Set[str] = set()
         
-        # Cargar configuración (fallback a defaults si no existe)
+        # Patrones de filtrado "Basic" (inspirado en EasyList/uBOL)
+        self.ad_patterns = [
+            r"https?://[^/]*\.(?:doubleclick\.net|googlesyndication\.com|adservice\.google\.com)",
+            r"https?://[^/]*\.(?:amazon-adsystem\.com|clickadu\.com|popads\.net|propellerads\.com)",
+            r"https?://[^/]*\.(?:exoclick\.com|adsterra\.com|hilltopads\.net|trafficjunky\.com)",
+            r"https?://[^/]*\.(?:onclickads\.net|a-ads\.com|adform\.net|adnxs\.com|mgid\.com)",
+            r"https?://[^/]*/(?:ads|banners?|popunder|popup)/",
+            r"https?://[^/]*\.(?:outbrain\.com|taboola\.com|juicyads\.com|popcash\.net)",
+            r"https?://[^/]*\.(?:monetag\.com|criteo\.com|pubmatic\.com|ad-maven\.com)",
+            r"https?://[^/]*\.(?:impactify\.io|zedo\.com|adcash\.com|popmyads\.com|plugrush\.com)",
+            r"https?://[^/]*\.(?:google-analytics\.com|googletagmanager\.com|statcounter\.com)",
+            r"https?://[^/]*\.(?:facebook\.net|connect\.facebook\.net/en_US/sdk\.js)"
+        ]
+        
+        # Dominios base (legacy fallback)
         self.ad_domains = [
             'doubleclick.net', 'googlesyndication.com', 'adservice.google.com',
             'amazon-adsystem.com', 'clickadu.com', 'popads.net', 'propellerads.com',
             'exoclick.com', 'adsterra.com', 'hilltopads.net', 'trafficjunky.com',
-            'onclickads.net', 'a-ads.com', 'adform.net', 'adnxs.com'
+            'onclickads.net', 'a-ads.com', 'adform.net', 'adnxs.com', 'mgid.com',
+            'google-analytics.com', 'googletagmanager.com', 'facebook.net'
         ]
         self.download_domains = [
             'mega.nz', 'mega.co.nz', 'mega.io', 'drive.google.com', 'docs.google.com',
@@ -50,9 +65,32 @@ class NetworkAnalyzer:
                 self.logger.warning(f"Could not load network config from {config_path}: {e}")
 
     def is_ad_url(self, url: str) -> bool:
-        """Verifica si una URL es de un dominio publicitario."""
+        """Verifica si una URL es de un dominio publicitario o tracker (uBOL Basic style)."""
         url_lower = url.lower()
-        return any(ad_domain in url_lower for ad_domain in self.ad_domains)
+        
+        # 1. Verificar por dominios exactos (Rápido)
+        if any(ad_domain in url_lower for ad_domain in self.ad_domains):
+            return True
+            
+        # 2. Verificar por patrones Regex (Más exhaustivo)
+        for pattern in self.ad_patterns:
+            if re.search(pattern, url, re.IGNORECASE):
+                return True
+                
+        # 3. Bloquear trackes y scripts de ads comunes por nombre de archivo
+        ad_scripts = [
+            "adsbygoogle.js", "ads.js", "prebid.js", "adframe.js", "pop.js", 
+            "analytics.js", "gtm.js", "fbevents.js", "fb.js", "mgid.js"
+        ]
+        if any(script in url_lower for script in ad_scripts):
+            return True
+
+        # 4. Bloquear trackers comunes por keywords en URL
+        trackers = ["/analytics", "/telemetry", "/pixel.", "/collect?", "tracker.js"]
+        if any(t in url_lower for t in trackers):
+            return True
+            
+        return False
 
     def is_shortener_url(self, url: str) -> bool:
         """Verifica si una URL pertenece a un acortador de enlaces."""
@@ -67,41 +105,88 @@ class NetworkAnalyzer:
             return False
         return any(domain in url_lower for domain in self.download_domains)
 
+    def get_basic_blocking_script(self) -> str:
+        """Retorna un script de inyección para bloqueo cosmético (Basic CSS Hiding)."""
+        # Selectores comunes de ads usados en EasyList
+        selectors = [
+            ".adsbygoogle", ".ad-container", ".ad-slot", "[id^='google_ads_']",
+            "#mgid-widget", ".mgid-container", ".outbrain-widget", ".taboola-ads",
+            ".pop-ads", ".ad-banner", ".sidebar-ads", ".ad-wrapper",
+            ".fc-consent-root", ".cmplz-cookiebanner", ".cc-window"
+        ]
+        selectors_str = ", ".join(selectors)
+        
+        return f"""
+        (function() {{
+            const style = document.createElement('style');
+            style.textContent = `{selectors_str} {{ display: none !important; visibility: hidden !important; pointer-events: none !important; opacity: 0 !important; }}`;
+            document.head.appendChild(style);
+            
+            // Bloqueador de popups básico
+            window.open = function() {{ 
+                console.log("Blocked attempt to open popup");
+                return null; 
+            }};
+        }})();
+        """
+
     def setup_network_interception(self, page: Page, block_ads: bool = True):
         """
         Configura el bloqueo de ads y el monitoreo de tráfico.
         """
         if block_ads:
-            # Interceptar y bloquear ads
+            # 1. Bloqueo cosmético (Inyección inicial)
+            try:
+                page.add_init_script(self.get_basic_blocking_script())
+            except: pass
+            
+            # 2. Interceptar y bloquear ads a nivel de red
             page.route("**/*", self._handle_route)
-            self.logger.info("Ad blocking enabled via network route interception")
+            self.logger.info("uBOL-style Basic Network + Cosmetic filtering enabled")
         
         # Escuchar respuestas para capturar redirects
         page.on("response", self._handle_response)
         self.logger.info("Network monitoring enabled for download links")
 
     def _handle_route(self, route: Route):
-        """Decide si permitir o bloquear una request."""
+        """Decide si permitir o bloquear una request (uBOL Basic efficiency)."""
         request = route.request
         url = request.url
         resource_type = request.resource_type
         self.intercepted_requests += 1
         
-        # Bloquear dominios de ads conocidos
+        # Bloquear dominios de ads/trackers conocidos
         if self.is_ad_url(url):
             self.blocked_requests += 1
-            # self.logger.info(f"Blocked ad request: {url[:80]}...") # Demasiado verboso
-            route.abort()
+            # self.logger.debug(f"Blocked ad/tracker: {url[:80]}")
+            route.abort("aborted") # Usar error de bloqueo estándar
             return
 
-        # Bloquear recursos pesados innecesarios para resolución de links
-        # Nota: Dejamos 'stylesheet' fuera del bloqueo inicial porque algunos sitios
-        # lanzan ERR_ABORTED si los estilos críticos no cargan.
-        BLOCKED_TYPES = ["image", "media", "font"]
-        if resource_type in BLOCKED_TYPES and "google" not in url:
-            route.abort()
-        else:
-            route.continue_()
+        # Bloqueo de tipos de recursos innecesarios si son de terceros
+        # (Esto imita reglas de bloqueo de medios de uBOL)
+        blocked_types = ["image", "media", "font"]
+        if resource_type in blocked_types:
+            page_domain = ""
+            try:
+                from urllib.parse import urlparse
+                # Intentar obtener el dominio de la página que originó la request
+                if request.frame and request.frame.page:
+                    page_domain = urlparse(request.frame.page.url).netloc
+                
+                request_domain = urlparse(url).netloc
+                
+                # Bloquear multimedia de terceros que no sea de dominios de descarga o el sitio mismo
+                if request_domain and page_domain and request_domain != page_domain:
+                    # Permitir si es un dominio de descarga conocido
+                    if not any(d in request_domain for d in self.download_domains):
+                        # Permitir google (para captchas o perfiles)
+                        if "google" not in request_domain:
+                            self.blocked_requests += 1
+                            route.abort("blockedbyclient")
+                            return
+            except: pass
+
+        route.continue_()
 
     def _handle_response(self, response: Response):
         """Analiza respuestas en busca de links de descarga."""
