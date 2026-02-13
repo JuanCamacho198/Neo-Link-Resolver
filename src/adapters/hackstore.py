@@ -159,6 +159,16 @@ class HackstoreAdapter(SiteAdapter):
             
             random_delay(1.0, 3.0)
 
+            # NUEVO: Cerrar posible splash screen / disclaimer
+            try:
+                self.log("INIT", "Checking for splash screen...")
+                splash_btn = page.query_selector("a:has-text('Continuar'), button:has-text('Continuar')")
+                if splash_btn and splash_btn.is_visible():
+                    self.log("INIT", "Closing splash screen (Continuar)...")
+                    splash_btn.click()
+                    page.wait_for_timeout(1000)
+            except: pass
+
             self.log("INIT", "Movie page loaded. Taking screenshot...")
             try:
                 page.screenshot(path="hackstore_movie_page.png")
@@ -223,265 +233,297 @@ class HackstoreAdapter(SiteAdapter):
                     self.log("WARNING", f"Error closing page: {e}")
 
     def _extract_download_links(self, page: Page) -> List[dict]:
-          """
-          Extrae los links de descarga de hackstore de forma interactiva.
-          
-          Hackstore usa un sistema dinámico donde:
-          1. Se muestran headings con calidades: "WEB-DL 1080p", "1080p", "720p"
-          2. Al hacer click en el heading, se expanden los proveedores disponibles
-          3. Cada proveedor tiene un botón "Descargar" que redirige a la URL final
-          
-          Flujo:
-          - Buscar todos los headings h3 con calidad
-          - Para cada heading, hacer click para expandir
-          - Esperar a que aparezcan los botones de proveedor
-          - Hacer click en cada botón de proveedor (preferentemente utorrent, mega, mediafire)
-          - Capturar la URL a la que redirige
-          
-          Retorna: [{"url": "...", "text": "..."}, ...]
-          """
-          links = []
-          
-          try:
-              # Esperar a que los elementos de descarga carguen
-              try:
-                  page.wait_for_selector("h3", timeout=TIMEOUT_ELEMENT * 1000)
-              except Exception as e:
-                  self.log("WARNING", f"Timeout waiting for h3 elements: {e}")
-              
-              # Obtener el HTML completo como fallback
-              html_content = page.content()
-              
-              # Patrones de proveedores conocidos (en orden de preferencia)
-              providers_preferred = [
-                  "utorrent",
-                  "mega",
-                  "mediafire",
-                  "drive.google",
-                  "dropbox"
-              ]
-              
-              providers_all = [
-                  "utorrent.com",
-                  "mega.nz",
-                  "www.mediafire.com",
-                  "megaup.net",
-                  "1fichier.com",
-                  "ranoz.gg",
-                  "drive.google.com",
-                  "dropbox.com",
-                  "gofile.io",
-                  "mediafire",
-                  "mega",
-                  "dropbox",
-                  "google drive"
-              ]
-              
-              # Buscar headings de calidad
-              try:
-                  headings = page.query_selector_all("h3")
-              except Exception as e:
-                  self.log("WARNING", f"Failed to query h3 selectors: {e}")
-                  headings = []
-              
-              # Si no hay h3, intentar con otras etiquetas
-              if not headings or len(headings) == 0:
-                  self.log("EXTRACT", "No h3 found, trying h2, h4, div.quality, .download-section...")
-                  try:
-                      alternative_selectors = ["h2", "h4", "div[class*='quality']", "div[class*='download']", ".quality-section"]
-                      for selector in alternative_selectors:
-                          headings = page.query_selector_all(selector)
-                          if headings and len(headings) > 0:
-                              self.log("EXTRACT", f"Found {len(headings)} elements with selector: {selector}")
-                              break
-                  except Exception as e:
-                      self.log("WARNING", f"Alternative selectors also failed: {e}")
-                      headings = []
-              
-              qualities_found = []
-              
-              for heading in headings:
-                  try:
-                      text = heading.inner_text().strip()
-                      # Patrones más amplios para detectar calidades
-                      quality_patterns = [
-                          "2160p", "4k", "1080p", "720p", "480p", "360p",
-                          "1080", "720", "480",
-                          "dvdrip", "web-dl", "webdl", "bluray", "blu-ray", "brrip", "bdrip",
-                          "remux", "webrip", "hdtv", "hdrip"
-                      ]
-                      if any(q in text.lower() for q in quality_patterns):
-                          qualities_found.append((text, heading))
-                          self.log("EXTRACT", f"Found quality section: {text}")
-                  except Exception as e:
-                      self.log("WARNING", f"Error reading heading text: {e}")
-                      continue
-              
-              if not qualities_found:
-                  self.log("EXTRACT", "No quality sections found, using fallback HTML search")
-                  return self._extract_links_fallback(html_content, providers_all)
-              
-              self.log("EXTRACT", f"Found {len(qualities_found)} quality sections, processing interactively...")
-              
-              # Procesar cada calidad de forma interactiva
-              for quality_text, heading_element in qualities_found:
-                  self.log("EXTRACT", f"Processing quality: {quality_text}")
-                  
-                  try:
-                      # Hacer scroll hasta el elemento si es necesario
-                      try:
-                          heading_element.scroll_into_view_if_needed()
-                      except Exception as e:
-                          self.log("WARNING", f"Failed to scroll into view: {e}")
-                      
-                      random_delay(0.3, 0.7)
-                      
-                      # Click en el heading para expandir
-                      try:
-                          heading_element.click()
-                      except Exception as e:
-                          self.log("WARNING", f"Failed to click heading: {e}")
-                          continue
-                      
-                      random_delay(0.5, 1.5)
-                      self.log("EXTRACT", f"  Clicked on {quality_text}, waiting for providers to appear...")
-                      
-                      # Esperar a que aparezcan los botones de descarga
-                      # Los botones típicamente aparecen como <a>, <button>, o elementos con clase "download", "descargar"
-                      try:
-                          # Intentar esperar a que aparezcan elementos de descarga
-                          page.wait_for_selector("a[href*='descargar'], button:has-text('Descargar'), .btn-descargar", timeout=3000)
-                      except:
-                          self.log("EXTRACT", "  No download button selector found, searching for provider links...")
-                      
-                      # Buscar botones de proveedor cerca del heading expandido
-                      # Generalmente están en el siguiente párrafo o div
-                      try:
-                          provider_elements = self._find_provider_buttons_after_heading(page, heading_element)
-                      except Exception as e:
-                          self.log("WARNING", f"Failed to find provider buttons: {e}")
-                          provider_elements = []
-                      
-                      self.log("EXTRACT", f"  Found {len(provider_elements)} provider buttons for {quality_text}")
-                      
-                      for provider_button in provider_elements:
-                          try:
-                              provider_text = provider_button.inner_text().strip()
-                              
-                              # Identificar el proveedor
-                              provider_name = self._identify_provider(provider_text, providers_all)
-                              
-                              if not provider_name:
-                                  self.log("EXTRACT", f"    Skipping unknown provider: {provider_text}")
-                                  continue
-                              
-                              self.log("EXTRACT", f"    Clicking provider: {provider_name}")
-                              
-                              # Hacer click en el botón del proveedor
-                              try:
-                                  provider_button.click()
-                              except Exception as e:
-                                  self.log("WARNING", f"Failed to click provider button: {e}")
-                                  continue
-                              
-                              random_delay(1.5, 3.0)
-                              
-                              # Verificar si el NetworkAnalyzer capturó algo
-                              if self.network_analyzer and self.network_analyzer.captured_links:
-                                  for captured in self.network_analyzer.captured_links:
-                                      if self.network_analyzer.is_download_url(captured['url']):
-                                          links.append({
-                                              "url": captured['url'],
-                                              "text": f"{quality_text} {provider_name}",
-                                              "provider": provider_name,
-                                              "quality": quality_text
-                                              # Score will be calculated later
-                                          })
-                                          # Limpiar capturas una vez procesadas para evitar duplicados en la siguiente calidad
-                                          self.network_analyzer.captured_links = []
-                                          break
-                              
-                              # Fallback: Intentar obtener la URL actual (podría haber sido redirigida)
-                              try:
-                                  current_url = page.url
-                                  if current_url and not current_url.startswith("https://hackstore.mx"):
-                                      # La página fue redirigida a un destino real
-                                      links.append({
-                                          "url": current_url,
-                                          "text": f"{quality_text} - {provider_name}"
-                                      })
-                                      self.log("EXTRACT", f"    Captured URL: {current_url[:80]}")
-                              except Exception as e:
-                                  self.log("WARNING", f"Failed to get current URL: {e}")
-                              
-                              # Volver a la página original
-                              try:
-                                  page.go_back()
-                                  random_delay(1.0, 2.0)
-                              except Exception as e:
-                                  self.log("WARNING", f"Failed to go back: {e}")
-                              
-                          except Exception as e:
-                              self.log("WARNING", f"    Error processing provider button: {e}")
-                              continue
-                  
-                  except Exception as e:
-                      self.log("WARNING", f"Error processing quality {quality_text}: {e}")
-                      continue
-              
-              # Si no encontramos links interactivamente, usar fallback
-              if not links:
-                  self.log("EXTRACT", "No links found interactively, using fallback HTML search...")
-                  links = self._extract_links_fallback(html_content, providers_all)
-              
-              # FALLBACK VISION: Si aún no hay links Y vision está disponible
-              if not links and self.vision_resolver:
-                  self.log("VISION", "Activating Vision fallback to identify download buttons...")
-                  try:
-                      vision_analysis = self.vision_resolver.analyze_page_sync(page)
-                      if vision_analysis:
-                          best_button = self.vision_resolver.find_best_button(vision_analysis)
-                          if best_button:
-                              # Intentar click en el botón identificado por Vision
-                              if self.vision_resolver.click_button_from_analysis(page, best_button):
-                                  random_delay(2.0, 4.0)
-                                  # Verificar si se capturó algo en la red
-                                  if self.network_analyzer and self.network_analyzer.captured_links:
-                                      for captured in self.network_analyzer.captured_links:
-                                          links.append({
-                                              "url": captured['url'],
-                                              "text": best_button.get('text', 'Vision-detected button')
-                                          })
-                                  else:
-                                      # Verificar URL actual
-                                      current_url = page.url
-                                      if current_url and "hackstore.mx" not in current_url:
-                                          links.append({
-                                              "url": current_url,
-                                              "text": best_button.get('text', 'Vision-detected button')
-                                          })
-                  except Exception as vision_error:
-                      self.log("WARNING", f"Vision fallback failed: {vision_error}")
-          
-          except Exception as e:
-              self.log("ERROR", f"Exception in _extract_download_links: {e}")
-              # Fallback a búsqueda HTML simple
-              try:
-                  html = page.content()
-                  links = self._extract_links_fallback(html, providers_all)
-              except Exception as fallback_e:
-                  self.log("ERROR", f"Fallback also failed: {fallback_e}")
-          
-          # Deduplicar
-          seen = set()
-          unique_links = []
-          for link in links:
-              if link.get("url") and link["url"] not in seen:
-                  seen.add(link["url"])
-                  unique_links.append(link)
-          
-          return unique_links
+        """
+        Extrae los links de descarga de hackstore de forma interactiva.
+        """
+        links = []
+        providers_all = [
+            "utorrent.com", "mega.nz", "www.mediafire.com", "megaup.net", 
+            "1fichier.com", "ranoz.gg", "drive.google.com", "dropbox.com", 
+            "gofile.io", "mediafire", "mega", "dropbox", "google drive"
+        ]
+        
+        try:
+            from human_sim import simulate_human_behavior
+            # Esperar a que los elementos de descarga carguen
+            self.log("EXTRACT", "Waiting for visible quality text (1080p, 720p, Bluray)...")
+            
+            # Interactuar un poco para despertar el renderizado reactivo
+            simulate_human_behavior(page, intensity="light")
+            
+            # Intentar encontrar texto de calidad VISIBLE (excluyendo scripts)
+            quality_loaded = False
+            for i in range(20): # Aumentar a 20 segundos
+                try:
+                    # Intentar scroll para activar carga perezosa
+                    if i % 5 == 0:
+                        page.mouse.wheel(0, 500)
+                    
+                    body_text = page.inner_text("body").lower()
+                    if any(q in body_text for q in ["1080p", "720p", "bluray", "dvdrip", "calidad"]):
+                        self.log("EXTRACT", f"Quality text detected in visible body after {i}s!")
+                        quality_loaded = True
+                        break
+                except:
+                    pass
+                
+                page.wait_for_timeout(1000)
+
+            if not quality_loaded:
+                # FALLBACK EXTREMO: Si no hay texto visible, buscar en TODO el HTML
+                html_content = page.content().lower()
+                if any(q in html_content for q in ["1080p", "720p", "bluray", "dvdrip"]):
+                    self.log("WARNING", "Quality text found in HTML/Scripts but NOT visible in body. Attempting forced extraction...")
+                    quality_loaded = True
+                else:
+                    self.log("ERROR", "No quality text found anywhere. Page might be restricted.")
+                    page.screenshot(path="logs/hackstore_blocked_debug.png")
+                    return []
+            self.log("DEBUG", "Searching for quality elements via JS...")
+            tag_info = page.evaluate("""() => {
+                const results = [];
+                const searchTerms = ['1080p', '720p', 'bluray', 'dvdrip'];
+                document.querySelectorAll('*').forEach(el => {
+                    const text = el.innerText || "";
+                    if (searchTerms.some(q => text.toLowerCase().includes(q)) && el.children.length === 0) {
+                        results.push({ tag: el.tagName, text: text.substring(0, 30), classes: el.className });
+                    }
+                });
+                return results;
+            }""")
+            for info in tag_info:
+                self.log("DEBUG", f"Found quality-like tag: <{info['tag']}> class='{info['classes']}' text='{info['text']}'")
+
+            # Buscar cabeceras que contengan calidad
+            # Ampliar aún más la búsqueda a CUALQUIER etiqueta que sea "hoja" (sin hijos) o tenga texto corto
+            headings = page.query_selector_all("h1, h2, h3, h4, h5, h6, b, strong, .font-bold, .text-xl, div:not(:has(*))")
+            self.log("EXTRACT", f"Total potential elements found: {len(headings)}")
+            
+            relevant_headings = []
+            for h in headings:
+                try:
+                    text = h.text_content().strip()
+                    # Filtro de longitud para evitar parrafos gigantes
+                    if len(text) < 50 and any(q in text.lower() for q in ["1080p", "720p", "4k", "dvdrip", "hd", "web-dl", "bluray"]):
+                        relevant_headings.append(h)
+                except:
+                    continue
+            
+            if not relevant_headings:
+                self.log("ERROR", "No relevant quality headings found among potential list. Using direct button scan.")
+                # Si fallan los headings, intentamos buscar TODOS los botones de descarga
+                return self._extract_links_direct_scan(page, providers_all)
+
+            self.log("EXTRACT", f"Found {len(relevant_headings)} relevant quality headings.")
+            original_url = page.url
+
+            # Eliminar duplicados de headings por texto para no procesar 2 veces lo mismo
+            unique_headings = []
+            seen_texts = set()
+            for h in relevant_headings:
+                txt = h.text_content().strip().lower()
+                if txt not in seen_texts:
+                    seen_texts.add(txt)
+                    unique_headings.append(h)
+            
+            # NUEVA ESTRATEGIA: Hunter de botones de descarga
+            self.log("EXTRACT", "Searching for all 'Descargar' buttons in page...")
+            
+            # Buscar todos los botones que digan Descargar/Download
+            all_buttons = page.query_selector_all("button, a")
+            download_candidates = []
+            
+            for btn in all_buttons:
+                try:
+                    if not btn.is_visible(): continue
+                    text = btn.inner_text().strip().upper()
+                    if "DESCARGAR" in text or "DOWNLOAD" in text or "VER ENLACES" in text:
+                        download_candidates.append(btn)
+                except: continue
+                
+            self.log("EXTRACT", f"Found {len(download_candidates)} potential download/expand buttons.")
+            
+            # Primero expandir todos los "VER ENLACES"
+            for btn in download_candidates:
+                try:
+                    btn_text = btn.inner_text().upper()
+                    if "VER ENLACES" not in btn_text: continue
+                    
+                    self.log("EXTRACT", f"Clicking expander: {btn_text[:20]}...")
+                    try:
+                        btn.click(timeout=3000)
+                    except Exception as e:
+                        if "intercepts pointer events" in str(e).lower():
+                            self.log("EXTRACT", "Expander intercepted. Clearing overlays...")
+                            page.evaluate("""() => {
+                                document.querySelectorAll('.fixed, .backdrop-blur-sm, [class*="overlay"]').forEach(el => el.remove());
+                            }""")
+                            btn.click(force=True)
+                        else:
+                            btn.click(force=True)
+                    page.wait_for_timeout(500)
+                except: continue
+            
+            # Ahora buscar los botones de descarga REALES (los que aparecen tras expandir)
+            self.log("EXTRACT", "Searching for provider-specific download buttons...")
+            page.wait_for_timeout(2000)
+            all_elements = page.query_selector_all("button, a")
+            
+            for el in all_elements:
+                try:
+                    el_text = (el.text_content() or "").strip().upper()
+                    
+                    # Ignorar expansores (los que ya clickamos) y textos vacíos
+                    if not el_text or "VER ENLACES" in el_text: continue
+                    
+                    # Criterio más estricto
+                    providers_keywords = ["MEGA", "MEDIAFIRE", "UTORRENT", "FICHIER", "DRIVE", "UPTOBOX", "UPSTREAM", "STREAM"]
+                    is_download = "DESCARGAR" in el_text or "DOWNLOAD" in el_text or any(p in el_text for p in providers_keywords)
+                    
+                    if not is_download:
+                        continue
+                        
+                    if len(el_text) > 30: # Un botón real de proveedor no suele ser tan largo
+                        continue
+                    
+                    self.log("DEBUG", f"Found valid download button: '{el_text}'")
+
+                    # Obtener contexto (proveedor y calidad)
+                    # Subir un par de niveles para ver dónde está el botón encerrado
+                    container = page.evaluate_handle("el => el.closest('.flex, .grid, .row, tr, div[class*=\"link\"]') || el.parentElement", el)
+                    context_text = container.as_element().inner_text().lower() if container else ""
+                    
+                    provider = self._identify_provider(el_text, providers_all) # Preferir el texto del botón mismo
+                    if provider == el_text.lower(): # Si no identificó un proveedor conocido
+                         provider = self._identify_provider(context_text, providers_all)
+
+                    # Identificar calidad subiendo más niveles
+                    quality = page.evaluate("""(el) => {
+                        let curr = el;
+                        for (let i = 0; i < 25; i++) {
+                            if (!curr) break;
+                            let text = curr.innerText || "";
+                            let q = text.match(/(1080p|720p|4k|dvdrip|bluray|web-dl|dvd-rip)/i);
+                            if (q) return q[0].toUpperCase();
+                            curr = curr.previousElementSibling || curr.parentElement;
+                        }
+                        return "Unknown";
+                    }""", el)
+                    
+                    links.append({
+                        "url": "btn_click",
+                        "quality": quality,
+                        "provider": provider,
+                        "handle": el,
+                        "name": f"{provider} ({quality})"
+                    })
+                except: continue
+
+            if not links:
+                self.log("ERROR", "No download buttons identified after expansion.")
+                return []
+
+            self.log("EXTRACT", f"Identified {len(links)} interactive download links.")
+
+            unique_final_links = []
+            for link in links:
+                btn = link["handle"]
+                item_name = link.get("name", "Unknown Item")
+                
+                self.log("EXTRACT", f"Attempting to resolve {item_name}...")
+                try:
+                    target_page = None
+                    # Intentar hasta 2 veces (a veces el primer click abre un popup bloqueado y el segundo el link)
+                    for attempt in range(2):
+                        try:
+                            with page.context.expect_page(timeout=7000) as new_page_info:
+                                # Asegurar que el botón es visible y darle click
+                                btn.scroll_into_view_if_needed()
+                                try:
+                                    btn.click(timeout=4000)
+                                except:
+                                    # Si falla el click normal, limpiar overlays y forzar
+                                    page.evaluate("() => document.querySelectorAll('.fixed, .backdrop-blur-sm').forEach(el => el.remove())")
+                                    btn.click(force=True)
+                            
+                            target_page = new_page_info.value
+                            break # Éxito
+                        except:
+                            self.log("DEBUG", f"Attempt {attempt+1} failed to open new page. Retrying click...")
+                            page.wait_for_timeout(1000)
+                    
+                    if not target_page:
+                        self.log("WARNING", f"Could not trigger new tab for {item_name}")
+                        continue
+
+                    # Procesar la nueva página
+                    target_page.wait_for_load_state("domcontentloaded", timeout=15000)
+                    final_url = target_page.url
+                    
+                    self.log("NAV", f"New tab opened: {final_url[:60]}")
+
+                    if self.shortener_resolver and self.shortener_resolver.is_shortener(final_url):
+                        self.log("NAV", f"    Resolving shortener for {item_name}...")
+                        resolved = self.shortener_resolver.resolve(final_url, target_page)
+                        if resolved:
+                            final_url = resolved
+                    
+                    if final_url and "hackstore.mx" not in final_url:
+                        unique_final_links.append({
+                            "url": final_url,
+                            "text": item_name,
+                            "quality": link["quality"],
+                            "provider": link["provider"]
+                        })
+                        self.log("SUCCESS", f"    Resolved: {final_url[:60]}")
+                    
+                    target_page.close()
+                    # Si ya conseguimos uno de buena calidad, podemos parar o seguir
+                    # Por ahora seguimos para sacar todos los posibles
+                except Exception as e:
+                    self.log("WARNING", f"    Failed to process {item_name}: {e}")
+
+            return unique_final_links
+
+        except Exception as e:
+            self.log("ERROR", f"Error in _extract_download_links: {e}")
+            return []
      
+    def _extract_links_direct_scan(self, page: Page, providers: List[str]) -> List[dict]:
+        """
+        Escaneo directo de botones de descarga sin depender de headings.
+        """
+        self.log("EXTRACT", "Executing direct button scan fallback...")
+        links = []
+        try:
+            # Buscar todos los botones o links que digan descargar
+            buttons = page.query_selector_all("button, a")
+            for btn in buttons:
+                try:
+                    text = btn.inner_text().upper()
+                    if "DESCARGAR" in text or "DOWNLOAD" in text:
+                        # Intentar encontrar calidad cerca (padre o abuelo)
+                        parent = page.evaluate_handle("el => el.closest('.flex-1') || el.parentElement.parentElement", btn)
+                        quality = "Unknown"
+                        if parent:
+                            p_text = parent.as_element().inner_text()
+                            for q in ["1080p", "720p", "4k", "dvdrip"]:
+                                if q in p_text.lower():
+                                    quality = q
+                                    break
+                        
+                        links.append({
+                            "url": "direct_scan", # Marcador
+                            "text": f"{quality} Download",
+                            "quality": quality,
+                            "provider": "unknown",
+                            "handle": btn
+                        })
+                except: continue
+        except Exception as e:
+            self.log("ERROR", f"Error in direct scan: {e}")
+        return links
+
     def _find_provider_buttons_after_heading(self, page: Page, heading_element) -> List:
         """
         Encuentra los botones de proveedor que aparecen después de hacer click en un heading.
