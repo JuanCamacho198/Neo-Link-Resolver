@@ -17,7 +17,7 @@ except ImportError:
     from ..config import SearchCriteria
 
 TIMEOUT_NAV = 40000
-MAX_CLICK_ATTEMPTS = 5  # REDUCIDO A 5
+MAX_CLICK_ATTEMPTS = 5
 
 class PeliculasGDAdapter(SiteAdapter):
     def __init__(self, context: BrowserContext, criteria: SearchCriteria = None):
@@ -38,7 +38,7 @@ class PeliculasGDAdapter(SiteAdapter):
                 r_url = response.url
                 if "domk5.net" in r_url or ("drive.google.com" in r_url and "/view" in r_url):
                     if not self.final_link_found_in_network:
-                        self.log("NETWORK", f"Final link: {r_url[:60]}...")
+                        self.log("NETWORK", f"Final: {r_url[:60]}...")
                         self.final_link_found_in_network = r_url
             except: pass
             
@@ -101,6 +101,91 @@ class PeliculasGDAdapter(SiteAdapter):
         finally:
             self.context.on("response", on_response)
             self.context.on("request", on_request)
+
+    def _try_click_button(self, page: Page, btn) -> bool:
+        """
+        Intenta múltiples estrategias de click. Retorna True si logró navegar.
+        """
+        try:
+            # Estrategia 1: Intentar obtener nueva página desde onclick
+            initial_urls = set(p.url for p in self.context.pages if not p.is_closed())
+            
+            # Ejecutar onclick directamente
+            try:
+                result = btn.evaluate("""el => {
+                    if (el.onclick) {
+                        el.onclick();
+                        return 'executed';
+                    }
+                    return 'no onclick';
+                }""")
+                self.log("DEBUG", f"onclick result: {result}")
+                time.sleep(2)
+                
+                # Check si cambió la URL
+                current_urls = set(p.url for p in self.context.pages if not p.is_closed())
+                new_pages = current_urls - initial_urls
+                if new_pages:
+                    for new_url in new_pages:
+                        self.log("INFO", f"Navigation to: {new_url[:50]}...")
+                        # Verificar si es safez
+                        if "safez.es" in new_url or "domk5" in new_url:
+                            self.final_link_found_in_network = new_url
+                            return True
+            except Exception as e:
+                self.log("DEBUG", f"onclick exec error: {e}")
+
+            # Estrategia 2: Click con expect_page
+            try:
+                with self.context.expect_page(timeout=3000) as new_page_info:
+                    btn.click()
+                new_p = new_page_info.value
+                new_url = new_p.url
+                self.log("INFO", f"New tab opened: {new_url[:50]}...")
+                if "safez.es" in new_url or "domk5" in new_url:
+                    self.final_link_found_in_network = new_url
+                    return True
+            except:
+                pass
+
+            # Estrategia 3: JavaScript click forzado
+            try:
+                btn.evaluate("""el => {
+                    el.click();
+                    // Forzar dispatchEvent
+                    el.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
+                }""")
+                time.sleep(2)
+            except Exception as e:
+                self.log("DEBUG", f"JS click error: {e}")
+
+            # Estrategia 4: Forzar window.location directamente
+            try:
+                # Buscar la URL en el onclick del botón
+                onclick = btn.get_attribute("onclick") or ""
+                url_match = re.search(r"['\"](https?://[^\"']+)['\"]", onclick)
+                if url_match:
+                    direct_url = url_match.group(1)
+                    self.log("INFO", f"Direct navigation to: {direct_url[:50]}...")
+                    page.goto(direct_url, timeout=30000)
+                    self.final_link_found_in_network = direct_url
+                    return True
+                
+                # Buscar en data-url o similar
+                data_url = btn.get_attribute("data-url") or btn.get_attribute("data-href") or ""
+                if data_url and "http" in data_url:
+                    self.log("INFO", f"Navigate via data-url: {data_url[:50]}...")
+                    page.goto(data_url, timeout=30000)
+                    self.final_link_found_in_network = data_url
+                    return True
+            except Exception as e:
+                self.log("DEBUG", f"Direct nav error: {e}")
+                
+            return False
+            
+        except Exception as e:
+            self.log("DEBUG", f"_try_click_button error: {e}")
+            return False
 
     def _marathon_watch(self, page: Page):
         self.log("MARATHON", "Watching...")
@@ -182,29 +267,15 @@ class PeliculasGDAdapter(SiteAdapter):
                                         self._nw_click_count += 1
                                         self.log("INFO", f"Click {self._nw_click_count}/{MAX_CLICK_ATTEMPTS}")
                                         
-                                        # LIMITE DE 5 INTENTOS
                                         if self._nw_click_count >= MAX_CLICK_ATTEMPTS:
-                                            self.log("ERROR", f"Max {MAX_CLICK_ATTEMPTS} attempts. Stopping.")
+                                            self.log("ERROR", f"Max {MAX_CLICK_ATTEMPTS}. Stopping.")
                                             self.final_link_found_in_network = "FAILED:MAX_ATTEMPTS"
                                             return
 
-                                        try:
-                                            onclick = btn.get_attribute("onclick") or ""
-                                            url_match = re.search(r"https?://[^\"'\s;]+", onclick)
-                                            if url_match:
-                                                direct_url = url_match.group(0)
-                                                self.log("INFO", f"Direct URL: {direct_url[:60]}...")
-                                                self.final_link_found_in_network = direct_url
-                                                return
-                                            
-                                            btn.evaluate("el => { if(el.onclick) el.onclick(); }")
-                                            time.sleep(1)
-                                            
-                                            box = btn.bounding_box()
-                                            if box:
-                                                p.mouse.click(box['x'] + box['width']/2, box['y'] + box['height']/2)
-                                        except Exception as e:
-                                            self.log("DEBUG", f"Click error: {e}")
+                                        # NUEVA ESTRATEGIA DE CLICK
+                                        success = self._try_click_button(p, btn)
+                                        if success:
+                                            return
                                         
                                         self._last_nw_click = time.time()
                         except Exception as e:
