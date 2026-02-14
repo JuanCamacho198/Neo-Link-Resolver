@@ -47,7 +47,16 @@ class PeliculasGDAdapter(SiteAdapter):
                         self.log("NETWORK", f"Final link detected: {r_url[:60]}...")
                         self.final_link_found_in_network = r_url
             except: pass
+        def on_request(request):
+            try:
+                r_url = request.url
+                if any(host in r_url for host in ["safez.es", "domk5.net", "drive.google.com"]):
+                    if not self.final_link_found_in_network:
+                        self.log("NETWORK", f"Request link detected: {r_url[:60]}...")
+                        self.final_link_found_in_network = r_url
+            except: pass
         self.context.on("response", on_response)
+        self.context.on("request", on_request)
 
         try:
             self.log("INIT", f"Starting resolution for: {url}")
@@ -107,6 +116,7 @@ class PeliculasGDAdapter(SiteAdapter):
 
         finally:
             self.context.on("response", on_response)
+            self.context.on("request", on_request)
 
     def _marathon_watch(self, page: Page):
         """Vigila todas las pestañas abiertas buscando el link final."""
@@ -296,6 +306,25 @@ class PeliculasGDAdapter(SiteAdapter):
                                     
                                     if btn and not btn.is_disabled():
                                         txt = btn.inner_text().upper()
+
+                                        # Ejecutar onclick directamente si existe
+                                        try:
+                                            onclick_attr = btn.get_attribute("onclick") or ""
+                                            if onclick_attr:
+                                                self.log("DEBUG", f"onclick attribute: {onclick_attr[:120]}...")
+                                                # Intentar extraer URL directa del onclick
+                                                import re
+                                                url_match = re.search(r"https?://[^\"'\s<>]+", onclick_attr)
+                                                if url_match:
+                                                    direct_url = url_match.group(0)
+                                                    self.log("INFO", f"DIRECT ONCLICK URL: {direct_url[:60]}...")
+                                                    self.final_link_found_in_network = direct_url
+                                                    return
+                                                # Ejecutar handler JS del onclick
+                                                btn.evaluate("el => el.onclick && el.onclick()")
+                                                time.sleep(1.5)
+                                        except Exception as e:
+                                            self.log("DEBUG", f"Error executing onclick: {e}")
                                         
                                         # 4. MEJORAR ESPERA DEL TEMPORIZADOR
                                         import re
