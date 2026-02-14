@@ -149,17 +149,33 @@ class PeliculasGDAdapter(SiteAdapter):
 
                 // 3. Forzar botón NewWorld (MODO NATURAL)
                 if (url.includes('neworldtravel.com')) {
-                    const btn = document.querySelector('button#contador');
+                    const btnSelectors = ['button#contador', '#btn-main', 'button.button.success', 'a.button', 'div.button'];
+                    let btn = null;
+                    for (const sel of btnSelectors) {
+                        const el = document.querySelector(sel);
+                        if (el) {
+                            const txt = (el.innerText || '').toUpperCase();
+                            if (txt.includes('CONTINUAR') || txt.includes('ENLACE') || txt.includes('VINCULO') || txt.includes('VÍNCULO') || txt === '') {
+                                btn = el;
+                                break;
+                            }
+                        }
+                    }
+
                     if (btn) {
-                        const txt = btn.innerText.toUpperCase();
-                        if (txt.includes('CONTINUAR') || txt.includes('ENLACE') || txt.includes('VINCULO')) {
-                             if (!btn.disabled) {
-                                 const oc = btn.getAttribute('onclick') || '';
-                                 if (oc.includes('safez.es')) {
-                                     const m = oc.match(/https?:\/\/safez\.es\/[^"']+/);
-                                     if (m) window.FINAL_LINK = m[0];
-                                 }
-                             }
+                        // Resaltar el botón encontrado
+                        btn.style.outline = '5px solid yellow';
+                        btn.style.boxShadow = '0 0 20px yellow';
+                        
+                        if (!btn.disabled) {
+                            const oc = btn.getAttribute('onclick') || '';
+                            if (oc.includes('safez.es')) {
+                                const m = oc.match(/https?:\/\/safez\.es\/[^"']+/);
+                                if (m) {
+                                    console.log("Scanner: Link found in onclick!");
+                                    window.FINAL_LINK = m[0];
+                                }
+                            }
                         }
                     }
                 }
@@ -188,6 +204,13 @@ class PeliculasGDAdapter(SiteAdapter):
             # Escanear cada página del contexto
             try:
                 active_pages = [p for p in self.context.pages if not p.is_closed()]
+                if not active_pages:
+                    self.log("MARATHON", "No active pages left. Waiting 5s for any late arrivals...")
+                    time.sleep(5)
+                    active_pages = [p for p in self.context.pages if not p.is_closed()]
+                    if not active_pages:
+                        self.log("MARATHON", "Still no pages. Ending marathon.")
+                        break
             except:
                 self.log("MARATHON", "Context closed or browser crashed. Stopping...")
                 return
@@ -239,50 +262,133 @@ class PeliculasGDAdapter(SiteAdapter):
                                 p.evaluate("if (window._ACCELERATOR) { window._ACCELERATOR.speed = 1.0; window._ACCELERATOR.active = false; }")
                             except: pass
                                 
-                        # CLICKER DE EMERGENCIA RAPIDO (SIMPLE)
+                        # CLICKER DE EMERGENCIA RAPIDO (ROBUSTO)
                         if "neworldtravel.com" in url:
                             try:
-                                if not hasattr(self, '_last_nw_click') or time.time() - self._last_nw_click > 8:
-                                    btn = p.locator("button#contador").first
-                                    if btn.is_visible() and not btn.is_disabled():
+                                if not hasattr(self, '_last_nw_click') or time.time() - self._last_nw_click > random.uniform(5, 9):
+                                    # Inicializar tiempo de entrada a NewWorld
+                                    if not hasattr(self, '_nw_entry_time'):
+                                        self._nw_entry_time = time.time()
+                                        self.log("INFO", "NewWorld room entered. Waiting for stabilization...")
+                                    
+                                    # No clickear antes de 5 segundos de entrar (evitar bot-trap de click instantáneo)
+                                    if time.time() - self._nw_entry_time < 5:
+                                        continue
+                                    selectors = [
+                                        "button#contador", 
+                                        "button.button.success",
+                                        "button.success", 
+                                        ".main button", 
+                                        "button:has-text('Continuar')",
+                                        "button:has-text('enlace')"
+                                    ]
+                                    btn = None
+                                    for sel in selectors:
+                                        try:
+                                            el = p.locator(sel).first
+                                            if el.is_visible():
+                                                btn = el
+                                                # LOG DETALLADO (Plan 1)
+                                                html_snippet = el.evaluate("el => el.outerHTML.substring(0, 100)")
+                                                self.log("DEBUG", f"Button found ({sel}): {html_snippet}...")
+                                                break
+                                        except: continue
+                                    
+                                    if btn and not btn.is_disabled():
                                         txt = btn.inner_text().upper()
                                         
-                                        # Solo clickear si el timer terminó de verdad (sin numeros en el texto)
+                                        # 4. MEJORAR ESPERA DEL TEMPORIZADOR
                                         import re
-                                        if ("CONTINUAR" in txt or "ENLACE" in txt) and not re.search(r'\d+', txt):
+                                        has_numbers = re.search(r'\d+', txt)
+                                        if has_numbers:
+                                            self.log("DEBUG", f"Timer still active: '{txt}'. Waiting...")
+                                            is_ready = False
+                                        else:
+                                            # A veces el texto está vacío pero el botón es Success
+                                            is_ready = ("CONTINUAR" in txt or "ENLACE" in txt or "VINCULO" in txt or txt == "")
+                                            if is_ready:
+                                                self.log("DEBUG", f"Button text clean: '{txt}'. Ready to click.")
+                                        
+                                        if is_ready:
                                             self._nw_click_count += 1
+                                            
+                                            # FAIL-SAFE: 15 Intentos
                                             if self._nw_click_count > 15:
-                                                self.log("ERROR", "NewWorld button clicked 15 times without success. Dump HTML...")
+                                                self.log("ERROR", "NewWorld button clicked 15 times without success. Saving debug info...")
                                                 try:
+                                                    import os
+                                                    if not os.path.exists("logs"): os.makedirs("logs")
+                                                    if not os.path.exists("screenshots"): os.makedirs("screenshots")
+                                                    p.screenshot(path="screenshots/newworld_fail.png")
                                                     with open("logs/newworld_stuck.html", "w", encoding="utf-8") as f:
                                                         f.write(p.content())
                                                 except: pass
                                                 self.final_link_found_in_network = "FAILED:NEWWORLD_STUCK"
                                                 return
 
-                                            self.log("DEBUG", f"Ultra-human click NewWorld ({self._nw_click_count}/15): {txt}")
-                                            
-                                            # Traer al frente para asegurar que el click es registrado
-                                            try: p.bring_to_front()
-                                            except: pass
-                                            time.sleep(0.5)
-
-                                            # Intentar click por coordenadas con jitter
+                                            # 3. MODO DEBUG VISUAL
                                             try:
-                                                box = btn.bounding_box()
-                                                if box:
-                                                    # Click un poco aleatorio dentro del botón
-                                                    cx = box['x'] + box['width']*0.3 + random.uniform(0, box['width']*0.4)
-                                                    cy = box['y'] + box['height']*0.3 + random.uniform(0, box['height']*0.4)
-                                                    p.mouse.move(cx, cy, steps=5)
-                                                    p.mouse.click(cx, cy, delay=random.uniform(100, 200))
-                                                else:
-                                                    btn.click(force=True, delay=200)
-                                            except:
-                                                btn.click(force=True, delay=200)
+                                                btn.evaluate("el => { el.style.border = '5px solid yellow'; el.style.boxShadow = '0 0 20px yellow'; }")
+                                                p.screenshot(path=f"screenshots/click_attempt_{self._nw_click_count}.png")
+                                            except: pass
+
+                                            self.log("INFO", f"Triggering click on NewWorld (Attempt {self._nw_click_count}/15)")
                                             
-                                            # Si tras el click aparece un 'miembros-vip', lo cerramos
+                                            p.bring_to_front()
+                                            
+                                            # Simular actividad: click en el body (desbloquear popups/eventos)
+                                            try:
+                                                p.mouse.click(10, 10) 
+                                                time.sleep(0.5)
+                                            except: pass
+
+                                            # 2. CLIC ROBUSTO (JS + MOUSE)
+                                            try:
+                                                # Triple intento: JS directo, JS en texto, y JS forzado
+                                                btn.evaluate("""el => { 
+                                                    el.click(); 
+                                                    const txt = el.querySelector('.text');
+                                                    if (txt) txt.click();
+                                                    // Forzar el evento 'mousedown' y 'mouseup' manualmente por si el click está capturado
+                                                    const ev = new MouseEvent('click', {bubbles: true, cancelable: true, view: window});
+                                                    el.dispatchEvent(ev);
+                                                }""")
+                                                time.sleep(0.5)
+                                            except: pass
+
+                                            # Movimiento de mouse humano con DOUBLE CLICK
+                                            box = btn.bounding_box()
+                                            if box:
+                                                target_x = box['x'] + box['width']/2 + random.uniform(-5, 5)
+                                                target_y = box['y'] + box['height']/2 + random.uniform(-5, 5)
+                                                p.mouse.move(target_x, target_y, steps=8)
+                                                # Doble click rápido
+                                                p.mouse.click(target_x, target_y, click_count=2, delay=100)
+                                            
+                                            # REFRESH SI SE QUEDA TRABADO (Intento 8 y 12)
+                                            if self._nw_click_count in [8, 12]:
+                                                self.log("INFO", f"Stuck at attempt {self._nw_click_count}. Refreshing page...")
+                                                p.reload(wait_until="domcontentloaded")
+                                                time.sleep(3)
+
                                             self._last_nw_click = time.time()
+                            except Exception as e:
+                                self.log("DEBUG", f"Error in NW clicker: {str(e)}")
+
+                        # CLICKER DE EMERGENCIA RAPIDO (ROBUSTO)
+                        if "neworldtravel.com" in url:
+                            # ... (NW logic already handled)
+                            pass
+
+                        # NUEVO: CLICKER PARA SAFEZ (Vincular)
+                        if "safez.es" in url:
+                            try:
+                                # Buscar botón Vincular
+                                safez_btn = p.locator('button:has-text("Vincular"), a:has-text("Vincular"), .btn:has-text("Vincular")').first
+                                if safez_btn.is_visible() and not safez_btn.is_disabled():
+                                    self.log("INFO", "Safez 'Vincular' button detected. Clicking...")
+                                    safez_btn.evaluate("el => el.click()")
+                                    time.sleep(2)
                             except: pass
 
                         # Verificar si fue redirigido a Google o VIP (bloqueo de bot)
@@ -325,7 +431,7 @@ class PeliculasGDAdapter(SiteAdapter):
                                     # Navegar directamente en lugar de clickear
                                     p.goto(onclick_url, wait_until="networkidle", timeout=30000)
                                     frame.evaluate("window.EXTRACTED_ONCLICK = null;") # Limpiar
-                                    return # Si navegamos, salimos de este check para esperar el nuevo URL en el próximo loop
+                                    continue # Si navegamos, seguimos en el loop para vigilar el nuevo URL
                             except: pass
                         
                             # Acción agresiva ocasional para despertar la página
