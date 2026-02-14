@@ -152,10 +152,8 @@ class PeliculasGDAdapter(SiteAdapter):
                     const btn = document.querySelector('button#contador');
                     if (btn) {
                         const txt = btn.innerText.toUpperCase();
-                        // Solo clickear si el texto ya no es un número (timer finalizado)
                         if (txt.includes('CONTINUAR') || txt.includes('ENLACE') || txt.includes('VINCULO')) {
                              if (!btn.disabled) {
-                                 // Link directo en onclick
                                  const oc = btn.getAttribute('onclick') || '';
                                  if (oc.includes('safez.es')) {
                                      const m = oc.match(/https?:\/\/safez\.es\/[^"']+/);
@@ -165,6 +163,22 @@ class PeliculasGDAdapter(SiteAdapter):
                         }
                     }
                 }
+
+                // 4. Búsqueda agresiva en variables y base64
+                try {
+                    const b64Potential = document.body.innerHTML.match(/[a-zA-Z0-9+\/]{30,}/g);
+                    if (b64Potential) {
+                        b64Potential.forEach(p => {
+                            try {
+                                const d = atob(p);
+                                if (d.includes('safez.es')) {
+                                    const m = d.match(/https?:\/\/safez\.es\/[^"'\s<>]+/);
+                                    if (m) window.FINAL_LINK = m[0];
+                                }
+                            } catch(e){}
+                        });
+                    }
+                } catch(e){}
             }, 1000);
         """
 
@@ -218,24 +232,24 @@ class PeliculasGDAdapter(SiteAdapter):
                     
                     # Fase 5: Detección de bloqueo en NewWorldTravel
                     if "neworldtravel.com" in url or "google.com" in url:
-                        # Si estamos en NewWorld, desactivar aceleración agresiva porque nos detectan
+                        # Si estamos en NewWorld, desactivar aceleración porque nos detectan
                         if "neworldtravel.com" in url:
                             try:
-                                # NewWorldTravel detecta si el timer se acaba muy rápido. Forzamos 1.0x.
-                                p.evaluate("if (window._ACCELERATOR) window._ACCELERATOR.speed = 1.1; else window._SUSPECT_NEWORLD = true;")
+                                # NewWorldTravel detecta aceleración. Intentamos desactivarla si existe.
+                                p.evaluate("if (window._ACCELERATOR) { window._ACCELERATOR.speed = 1.0; window._ACCELERATOR.active = false; }")
                             except: pass
                                 
                         # CLICKER DE EMERGENCIA RAPIDO (SIMPLE)
                         if "neworldtravel.com" in url:
                             try:
-                                if not hasattr(self, '_last_nw_click') or time.time() - self._last_nw_click > 7:
+                                if not hasattr(self, '_last_nw_click') or time.time() - self._last_nw_click > 8:
                                     btn = p.locator("button#contador").first
                                     if btn.is_visible() and not btn.is_disabled():
                                         txt = btn.inner_text().upper()
                                         
                                         # Solo clickear si el timer terminó de verdad (sin numeros en el texto)
                                         import re
-                                        if not re.search(r'\d+', txt) or "ENLACE" in txt:
+                                        if ("CONTINUAR" in txt or "ENLACE" in txt) and not re.search(r'\d+', txt):
                                             self._nw_click_count += 1
                                             if self._nw_click_count > 15:
                                                 self.log("ERROR", "NewWorld button clicked 15 times without success. Dump HTML...")
@@ -246,24 +260,34 @@ class PeliculasGDAdapter(SiteAdapter):
                                                 self.final_link_found_in_network = "FAILED:NEWWORLD_STUCK"
                                                 return
 
-                                            self.log("DEBUG", f"Natural-click NewWorld ({self._nw_click_count}/15): {txt}")
+                                            self.log("DEBUG", f"Ultra-human click NewWorld ({self._nw_click_count}/15): {txt}")
                                             
-                                            # Intentar click por coordenadas por si hay overlays invisibles
+                                            # Traer al frente para asegurar que el click es registrado
+                                            try: p.bring_to_front()
+                                            except: pass
+                                            time.sleep(0.5)
+
+                                            # Intentar click por coordenadas con jitter
                                             try:
                                                 box = btn.bounding_box()
                                                 if box:
-                                                    p.mouse.click(box['x'] + box['width']/2, box['y'] + box['height']/2)
+                                                    # Click un poco aleatorio dentro del botón
+                                                    cx = box['x'] + box['width']*0.3 + random.uniform(0, box['width']*0.4)
+                                                    cy = box['y'] + box['height']*0.3 + random.uniform(0, box['height']*0.4)
+                                                    p.mouse.move(cx, cy, steps=5)
+                                                    p.mouse.click(cx, cy, delay=random.uniform(100, 200))
                                                 else:
                                                     btn.click(force=True, delay=200)
                                             except:
                                                 btn.click(force=True, delay=200)
-                                                
+                                            
+                                            # Si tras el click aparece un 'miembros-vip', lo cerramos
                                             self._last_nw_click = time.time()
                             except: pass
 
-                        # Verificar si fue redirigido a Google (bloqueo de bot)
-                        if "google.com" in url and ("zx=" in url or "q=" in url or "search?" in url):
-                            self.log("BLOCK", "NewWorldTravel detectó velocidad/bot y mandó a Google. Cerrando...")
+                        # Verificar si fue redirigido a Google o VIP (bloqueo de bot)
+                        if ("google.com" in url and "search?" in url) or "miembros-vip" in url:
+                            self.log("BLOCK", f"Redirección de bloqueo detectada ({url[:30]}). Cerrando pestaña...")
                             try:
                                 if len(self.context.pages) > 1:
                                     p.close()
