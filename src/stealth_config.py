@@ -19,13 +19,38 @@ def apply_stealth_to_page(page: Page) -> None:
     """
     Aplica técnicas de stealth a una página de Playwright para evitar detección de bots.
     """
+    # Inyectar scripts manuales de evasión siempre, independientemente de la librería
+    try:
+        page.add_init_script("""
+            // Evasión de WebDriver
+            Object.defineProperty(navigator, 'webdriver', { get: () => false });
+            
+            // Evasión de lenguajes
+            Object.defineProperty(navigator, 'languages', { get: () => ['es-ES', 'es', 'en-US', 'en'] });
+            
+            // Evasión de Plugins
+            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+            
+            // Evasión de Chrome runtime
+            window.chrome = { runtime: {} };
+            
+            // Evasión de Permissions
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                Promise.resolve({ state: Notification.permission }) :
+                originalQuery(parameters)
+            );
+        """)
+    except: pass
+
     if not STEALTH_AVAILABLE:
-        logger.warning("playwright-stealth not installed. Skipping stealth mode.")
+        logger.info("Using manual stealth scripts (library not importable)")
         return
     
     try:
         Stealth().apply_stealth_sync(page)
-        logger.info("Stealth mode applied to page")
+        logger.info("Advanced Stealth mode applied via library")
     except Exception as e:
         logger.warning(f"Failed to apply stealth mode: {e}")
 

@@ -19,14 +19,21 @@ class TimerInterceptor:
         """
         Inyecta un script que overridea setTimeout y setInterval.
         """
-        self.logger.info(f"Injecting timer acceleration (factor {self.speed_factor}x)...")
+        self.logger.info(f"Injecting timer acceleration and anti-debugger (factor {self.speed_factor}x)...")
         
         # Script para acelerar timers
-        # Nota: Multiplica los delays cortos o divide los delays largos.
-        # Aquí dividimos el delay por el factor de velocidad.
         acceleration_script = f"""
         (() => {{
             if (window._ACCELERATOR_READY) return;
+
+            // Bloquear debugger
+            if (typeof Function.prototype.constructor === 'function') {{
+                const originalConstructor = Function.prototype.constructor;
+                Function.prototype.constructor = function(str) {{
+                    if (str === 'debugger') return function() {{}};
+                    return originalConstructor.apply(this, arguments);
+                }};
+            }}
             
             window._ACCELERATOR = {{
                 speed: {self.speed_factor},
@@ -156,24 +163,38 @@ class TimerInterceptor:
                     const text = el.innerText.toLowerCase();
                     const visible = !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
                     
-                    // Solo activar botones relevantes o si el ID es muy específico
-                    if (text.includes('continuar') || text.includes('descargar') || 
-                        text.includes('siguiente') || text.includes('get link') || 
-                        text.includes('ir al enlace') || el.id === 'getLink') {
+                    // 1. Eliminar overlays que podrían estar bloqueando el botón
+                    const overlays = document.querySelectorAll('div[style*="position: fixed"], div[style*="z-index: 9991"], div[style*="z-index: 9992"], div[style*="z-index: 9993"], div[style*="z-index: 9994"], div[style*="z-index: 9995"], div[style*="z-index: 9996"], div[style*="z-index: 9997"], div[style*="z-index: 9998"], div[style*="z-index: 9999"], div[class*="overlay"], iframe:not([src*="google.com/recaptcha"])');
+                    overlays.forEach(ov => {
+                        const rect = ov.getBoundingClientRect();
+                        // Si el overlay cubre gran parte de la pantalla o es transparente/fijo, lo removemos
+                        if ((rect.width > window.innerWidth * 0.4 && rect.height > window.innerHeight * 0.4) || 
+                            window.getComputedStyle(ov).position === 'fixed') {
+                            ov.style.display = 'none';
+                            ov.style.pointerEvents = 'none';
+                            ov.remove();
+                            console.log("Blocking overlay removed/disabled");
+                        }
+                    });
+
+                    // 2. Solo activar botones relevantes o si el ID es muy específico
+                    const goodKeywords = ['continuar', 'descargar', 'siguiente', 'get link', 'ir al enlace', 'ingresar', 'vínculo'];
+                    if (goodKeywords.some(kw => text.includes(kw)) || 
+                        el.id === 'getLink' || el.id === 'btn-main' || el.className.includes('btn-success')) {
                         
                         el.removeAttribute('disabled');
                         el.disabled = false;
                         el.classList.remove('disabled', 'btn-disabled');
-                        el.setAttribute('aria-disabled', 'false');
                         
-                        // Restaurar estilo si parece deshabilitado visualmente
-                        el.style.pointerEvents = 'auto';
-                        el.style.opacity = '1';
-                        el.style.cursor = 'pointer';
-                        el.style.display = 'block'; // Asegurar visibilidad si estaba oculto
+                        // Restaurar estilo y ponerlo al frente absoluto
+                        el.style.setProperty('pointer-events', 'auto', 'important');
+                        el.style.setProperty('opacity', '1', 'important');
+                        el.style.setProperty('visibility', 'visible', 'important');
+                        el.style.setProperty('display', 'block', 'important');
+                        el.style.setProperty('zIndex', '2147483647', 'important'); // Max z-index
+                        el.style.setProperty('position', 'relative', 'important');
                         
                         activated++;
-                        console.log("Force-enabled button:", text || el.id);
                     }
                 });
             });
@@ -234,9 +255,21 @@ class TimerInterceptor:
                     # Intentar encontrar un botón que sea visible y no deshabilitado
                     el = page.query_selector(selector)
                     if el and el.is_visible() and el.is_enabled():
-                        # Verificar que no sea un botón de "ad" falso (heurística de tamaño/ubicación)
                         self.logger.success(f"Button ready! Clicking {selector}...")
-                        el.click()
+                        
+                        # Triple estrategia de click:
+                        # 1. Click JS nativo
+                        # 2. Click Playwright (simula mouse)
+                        # 3. dispatchEvent nativo
+                        
+                        try:
+                            el.evaluate("node => { node.click(); node.dispatchEvent(new MouseEvent('click', {bubbles: true})); }")
+                        except: pass
+                        
+                        try:
+                            el.click(timeout=2000)
+                        except: pass
+                        
                         return True
                 except:
                     continue
