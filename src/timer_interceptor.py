@@ -223,6 +223,7 @@ class TimerInterceptor:
             'a:has-text("Continue")', 'button:has-text("Continue")',
             'a:has-text("Ingresar")', 'button:has-text("Ingresar")',
             'a:has-text("Vínculo")', 'button:has-text("Vínculo")',
+            'a:has-text("Ir al enlace")', 'button:has-text("Ir al enlace")',
             'div:has-text("Ingresar")', 'span:has-text("Ingresar")',
             '#getLink', '.btn-success', '.get-link', '#btn-main'
         ]
@@ -233,18 +234,19 @@ class TimerInterceptor:
                     # Intentar encontrar un botón que sea visible y no deshabilitado
                     el = page.query_selector(selector)
                     if el and el.is_visible() and el.is_enabled():
+                        # Verificar que no sea un botón de "ad" falso (heurística de tamaño/ubicación)
                         self.logger.success(f"Button ready! Clicking {selector}...")
                         el.click()
                         return True
                 except:
                     continue
             
-            # Si llevamos la mitad del tiempo, intentar forzar
+            # Si llevamos la mitad del tiempo, intentar forzar (solo una vez cada 5s)
             if (__import__('time').time() - start_time) * 1000 > timeout_ms / 2:
-                if self.force_enable_buttons(page):
-                    # Reintentar click después de forzar
-                    page.wait_for_timeout(500)
-                    continue
+                if int(__import__('time').time()) % 5 == 0:
+                    if self.force_enable_buttons(page):
+                        page.wait_for_timeout(500)
+                        continue
             
             page.wait_for_timeout(1000)
             

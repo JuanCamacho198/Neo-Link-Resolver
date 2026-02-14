@@ -46,6 +46,12 @@ class PeliculasGDAdapter(SiteAdapter):
             self.log("INIT", f"Accediendo a: {url}")
             page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT_NAV)
             
+            # PEQUEÑA ESPERA PARA CAPTURAR TRÁFICO INICIAL
+            time.sleep(2)
+            if detected_links:
+                self.log("SUCCESS", "Enlace detectado inmediatamente en el tráfico")
+                return self._create_result(detected_links[0], url)
+
             # Extraer cookies de la sesión actual
             cookies = self.context.cookies()
             self.log("AUTH", f"Sesión activa con {len(cookies)} cookies detectadas")
@@ -58,20 +64,21 @@ class PeliculasGDAdapter(SiteAdapter):
             html = page.content()
             # Patrones comunes en PeliculasGD
             token_match = re.search(r'(r\.php\?f=|l\.php\?o=)([a-zA-Z0-9+/=]+)', html)
-            if not token_match:
-                token_match = re.search(r'acortame\.site/([a-zA-Z0-9]+)', html)
             
             redir_url = None
             if token_match:
-                token = token_match.group(2) if token_match.lastindex >= 2 else token_match.group(1)
-                prefix = token_match.group(1)
-                # Si es r.php o l.php, construir URL de neworldtravel
-                if "php" in prefix:
-                    redir_url = f"https://neworldtravel.com/{prefix}{token}"
-                else:
-                    redir_url = f"https://acortame.site/{token}"
-                self.log("EXTRACT", f"URL de redirección encontrada: {redir_url[:60]}...")
+                prefix = token_match.group(1) # r.php?f= o l.php?o=
+                token = token_match.group(2)
+                redir_url = f"https://neworldtravel.com/{prefix}{token}"
+                self.log("EXTRACT", f"URL de redirección encontrada (Neworld): {redir_url[:60]}...")
             else:
+                acortame_match = re.search(r'acortame\.site/([a-zA-Z0-9]+)', html)
+                if acortame_match:
+                    token = acortame_match.group(1)
+                    redir_url = f"https://acortame.site/{token}"
+                    self.log("EXTRACT", f"URL de redirección encontrada (Acortame): {redir_url[:60]}...")
+            
+            if not redir_url:
                 # Si no está en el HTML, buscar el botón y extraer su href
                 btn_selectors = [
                     "a:has(img[src*='cxx'])",
