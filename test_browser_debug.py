@@ -59,20 +59,53 @@ def debug_browser():
             except Exception as e:
                 print(f"⚠ Could not apply library stealth: {e}")
 
-        # Intentar llegar a la URL que el usuario mencionó (usando un ejemplo real de r.php si es posible)
-        target_url = "https://neworldtravel.com/r.php?f=UTZBWWJQaVQ4eUlr"
-        print(f"Navegando a: {target_url}")
+        # Fase 6: Human-in-the-loop desde el inicio
+        print("🔄 Modo human-in-the-loop activado")
+        print("1. El navegador se abrirá en blanco.")
+        print("2. Navega manualmente a: https://neworldtravel.com/r.php?f=UTZBWWJQaVQ4eUlr")
+        print("3. Resuelve cualquier captcha o challenge que aparezca.")
+        print("4. Una vez que veas el botón 'Continuar al enlace', presiona Enter aquí para continuar.")
         
-        try:
-            # Intentar con referer de PeliculasGD
-            page.goto(target_url, wait_until="networkidle", timeout=60000, referer="https://www.peliculasgd.net/")
-        except Exception as e:
-            print(f"Timeout o error al cargar: {e}")
+        # Esperar hasta que esté en la URL correcta
+        print("Esperando que navegues a NewWorldTravel...")
+        while True:
+            current_url = page.url
+            if "neworldtravel.com" in current_url:
+                print(f"✓ Detectado en NewWorldTravel: {current_url}")
+                break
+            time.sleep(2)
+            print(f"URL actual: {current_url} (esperando neworldtravel.com...)")
+        
+        input("Presiona Enter cuando el botón 'Continuar al enlace' esté visible...")
 
-        # Bucle de interacción para depurar pasos
+        # Ahora verificar la URL actual
+        current_url = page.url
+        print(f"URL actual después de navegación manual: {current_url}")
+
+        if "google.com" in current_url and "zx=" in current_url:
+            print("🚨 Aún redirigido a Google. Intenta de nuevo o usa VPN/proxy.")
+            browser.close()
+            return
+
+        # Inyectar aceleración de timers
+        page.evaluate("""
+            const originalSetTimeout = window.setTimeout;
+            window.setTimeout = function(callback, delay) {
+                return originalSetTimeout(callback, Math.min(delay, 100));
+            };
+            const originalSetInterval = window.setInterval;
+            window.setInterval = function(callback, delay) {
+                return originalSetInterval(callback, Math.min(delay, 100));
+            };
+            if (typeof counter !== 'undefined') counter = 0;
+            if (typeof countdown !== 'undefined') countdown = 0;
+        """)
+        print("✓ Timer acceleration injected")
+
+        # Bucle de interacción automática
         for step in range(1, 6):
             print(f"\n--- Paso {step} ---")
-            time.sleep(3)  # Reducido para más iteraciones
+            time.sleep(1)  # Reducido, ya que esperamos condiciones arriba
             
             current_url = page.url
             print(f"URL actual: {current_url}")
@@ -85,7 +118,7 @@ def debug_browser():
             # Buscar el div.text específico en TODAS las pestañas y frames
             target_selector = "div.text:has-text('Continuar al enlace')"
             found = False
-            for p in context.pages:
+            for p in browser.pages:
                 if p.is_closed(): continue
                 for frame in p.frames:
                     try:
@@ -98,35 +131,32 @@ def debug_browser():
                                 print(f"✓ Elemento encontrado en {p.url} (frame: {frame.name or 'main'}): visible={is_visible}, bbox={bbox}")
                                 
                                 if is_visible and bbox:
-                                    # Fase 2: Click robusto
+                                    print(f"🎯 Intentando click humano en {bbox}")
                                     try:
-                                        # Hover primero
-                                        el.hover()
-                                        time.sleep(0.5)
+                                        # Mover el mouse al centro del botón
+                                        center_x = bbox['x'] + bbox['width'] / 2
+                                        center_y = bbox['y'] + bbox['height'] / 2
                                         
-                                        # Click con delay
-                                        el.click(delay=500)
-                                        print("✓ Click exitoso con .click()")
+                                        p.mouse.move(center_x, center_y, steps=10)
+                                        time.sleep(0.2)
+                                        
+                                        # Click "sucio" (down y up separados)
+                                        p.mouse.down()
+                                        time.sleep(0.1)
+                                        p.mouse.up()
+                                        
+                                        print("✓ Click humano (mouse.move + down/up) enviado")
+                                        
+                                        # Si el click falló, intentar forzar vía evaluate
+                                        time.sleep(1)
+                                        if p.url == current_url:
+                                            print("⚠ URL no cambió, forzando click vía script...")
+                                            el.evaluate("el => { el.click(); el.dispatchEvent(new Event('click', {bubbles:true})); }")
+                                        
                                         found = True
                                         break
                                     except Exception as e:
-                                        print(f"⚠ Fallo .click(): {e}")
-                                        try:
-                                            # Dispatch event
-                                            el.dispatch_event("click")
-                                            print("✓ Click exitoso con dispatch_event")
-                                            found = True
-                                            break
-                                        except Exception as e2:
-                                            print(f"⚠ Fallo dispatch_event: {e2}")
-                                            try:
-                                                # Evaluate click
-                                                el.evaluate("el => el.click()")
-                                                print("✓ Click exitoso con evaluate")
-                                                found = True
-                                                break
-                                            except Exception as e3:
-                                                print(f"⚠ Fallo evaluate: {e3}")
+                                        print(f"⚠ Fallo click humano: {e}")
                                 else:
                                     print(f"✗ Elemento no visible o sin bbox")
                     except Exception as e:

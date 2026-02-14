@@ -5,9 +5,14 @@ from typing import List, Optional, Dict
 from playwright.sync_api import Page, BrowserContext
 
 from .base import SiteAdapter
-from src.matcher import LinkOption
-from src.url_parser import extract_metadata_from_url
-from src.config import SearchCriteria
+try:
+    from matcher import LinkOption
+    from url_parser import extract_metadata_from_url
+    from config import SearchCriteria
+except ImportError:
+    from ..matcher import LinkOption
+    from ..url_parser import extract_metadata_from_url
+    from ..config import SearchCriteria
 
 TIMEOUT_NAV = 40000
 
@@ -89,7 +94,8 @@ class PeliculasGDAdapter(SiteAdapter):
             # PASO 4: Navegar al blog en una pestaña LIMPIA
             # Esto evita que los scripts de 'auto-close' de la página anterior nos maten
             blog_page = self.context.new_page()
-            blog_page.goto(redir_url, referer="https://www.google.com/", timeout=TIMEOUT_NAV)
+            # Usar la misma página de PeliculasGD como referer para parecer más legítimo
+            blog_page.goto(redir_url, referer=url, timeout=TIMEOUT_NAV)
             
             # PASO 5-7: MARATHON
             self._marathon_watch(blog_page)
@@ -104,59 +110,60 @@ class PeliculasGDAdapter(SiteAdapter):
 
     def _marathon_watch(self, page: Page):
         """Vigila todas las pestañas abiertas buscando el link final."""
-        self.log("MARATHON", "Watching tabs for the final link (up to 4 mins)...")
+        self.log("MARATHON", "Watching tabs (Simplified + Hidden Link Finder)...")
         start_time = time.time()
+        self._nw_click_count = 0 
         
         scanner_script = """
             setInterval(() => {
-                // Forzar timers de blog (WordPress/Blogspot timers comunes)
-                const timerSelectors = ['#timer', '#contador', '.contador', '#count', '#countdown'];
-                timerSelectors.forEach(sel => {
-                    const el = document.querySelector(sel);
-                    if (el && parseInt(el.innerText) > 1) {
-                        el.innerText = '1'; // Forzar a casi terminar
-                    }
-                });
-                if (typeof counter !== 'undefined') counter = 0;
+                const url = window.location.href.toLowerCase();
                 
-                // Buscar links finales
-                const interactiveSelectors = 'a, button, [role="button"], div.text, div.btn, .button, .continue';
-                const allLinks = Array.from(document.querySelectorAll(interactiveSelectors));
-                
-                // También buscar cualquier DIV/SPAN que parezca un botón por texto
-                const extraLinks = Array.from(document.querySelectorAll('div, span')).filter(el => {
-                    const t = (el.innerText || '').trim().toUpperCase();
-                    return t === 'CONTINUAR' || t === 'CONTINUAR AL ENLACE' || t === 'GET LINK';
-                });
-                
-                const candidates = [...new Set([...allLinks, ...extraLinks])];
-                let found_href = null;
-
-                for (const el of candidates) {
-                    const href = el.href || el.src || '';
-                    const txt = (el.innerText || el.value || '').toUpperCase();
-                    
-                    if (href.includes('domk5.net') || (href.includes('drive.google.com') && (href.includes('/view') || href.includes('id=')))) {
-                        found_href = href;
-                        break;
-                    }
-                    
-                    const matches = ['INGRESAR', 'VINCULO', 'ENLACE', 'CONTINUAR', 'PROSEGUIR', 'DESCARGAR', 'CLICK HERE', 'IR AL LINK'];
-                    if (matches.some(m => txt.includes(m)) && !txt.includes('PRIVACIDAD')) {
-                        // Si es un link de 'r.php' o similar, o un elemento interactivo (div/button)
-                        if (href.includes('neworld') || href.includes('bit.ly') || !href || !href.includes(window.location.hostname)) {
-                            // Solo clickear si es visible
+                // 1. Quitar overlays que tapan el click (Estilo uBlock Lite)
+                document.querySelectorAll('div, iframe, section, aside').forEach(el => {
+                    try {
+                        const style = window.getComputedStyle(el);
+                        const z = parseInt(style.zIndex) || 0;
+                        const pos = style.position;
+                        
+                        if (z > 500 || pos === 'fixed') {
+                            // No borrar el contenedor del botón principal
+                            if (el.querySelector('button#contador')) return;
+                            
                             const rect = el.getBoundingClientRect();
-                            if (rect.width > 0 && rect.height > 0) {
-                                el.style.border = '3px solid lime';
-                                el.click();
+                            if (rect.width > window.innerWidth * 0.4 && rect.height > window.innerHeight * 0.4) {
+                                el.style.display = 'none'; // Mejor ocultar que borrar por si rompe layout
+                                el.style.pointerEvents = 'none';
+                            } else if (z > 1000) {
+                                el.remove();
                             }
                         }
-                    }
+                    } catch(e) {}
+                });
+
+                // 2. Buscar SAFEZ en todo el HTML (incluso oculto)
+                const bodyHtml = document.body.innerHTML;
+                const safezMatch = bodyHtml.match(/https?:\/\/(www\.)?safez\.es\/[^"'\s<>]+/);
+                if (safezMatch) {
+                    window.FINAL_LINK = safezMatch[0];
                 }
-                
-                if (found_href) {
-                    window.FINAL_LINK = found_href;
+
+                // 3. Forzar botón NewWorld (MODO NATURAL)
+                if (url.includes('neworldtravel.com')) {
+                    const btn = document.querySelector('button#contador');
+                    if (btn) {
+                        const txt = btn.innerText.toUpperCase();
+                        // Solo clickear si el texto ya no es un número (timer finalizado)
+                        if (txt.includes('CONTINUAR') || txt.includes('ENLACE') || txt.includes('VINCULO')) {
+                             if (!btn.disabled) {
+                                 // Link directo en onclick
+                                 const oc = btn.getAttribute('onclick') || '';
+                                 if (oc.includes('safez.es')) {
+                                     const m = oc.match(/https?:\/\/safez\.es\/[^"']+/);
+                                     if (m) window.FINAL_LINK = m[0];
+                                 }
+                             }
+                        }
+                    }
                 }
             }, 1000);
         """
@@ -165,29 +172,103 @@ class PeliculasGDAdapter(SiteAdapter):
             if self.final_link_found_in_network: return
 
             # Escanear cada página del contexto
-            for p in self.context.pages:
+            try:
+                active_pages = [p for p in self.context.pages if not p.is_closed()]
+            except:
+                self.log("MARATHON", "Context closed or browser crashed. Stopping...")
+                return
+            
+            # FOCUS LOCK: Prioridad absoluta a NewWorldTravel o Safez. Ignorar bit.ly intrusos.
+            try:
+                nw_page = next((p for p in active_pages if "neworldtravel.com" in p.url.lower()), None)
+                safez_page = next((p for p in active_pages if "safez.es" in p.url.lower()), None)
+                
+                if safez_page:
+                    safez_page.bring_to_front()
+                elif nw_page:
+                    nw_page.bring_to_front()
+            except: pass
+
+            for p in active_pages:
                 try:
-                    if p.is_closed(): continue
                     url = p.url.lower()
 
-                    # Si aterrizamos por navegación en el destino
-                    if "domk5.net" in url or ("drive.google.com" in url and "/view" in url):
-                        self.final_link_found_in_network = p.url
-                        return
+                    # Si aterrizamos por navegación en el destino o puente
+                    if "domk5.net" in url or "safez.es" in url or ("drive.google.com" in url and "/view" in url) or "tulink.org/l.php" in url:
+                        # Si es safez, a veces es solo un puente, seguimos vigilando pero lo reportamos
+                        if "safez.es" in url:
+                             self.log("MARATHON", f"Reached Link Protector: {url[:50]}")
+                             # Si estamos en safez, el scanner debería encontrar el botón "Vincular"
+                        elif "tulink.org" in url:
+                             # Intentar forzar la carga si está trabada
+                             try:
+                                 if p.title() == "" or "Redirecting" in p.title():
+                                     self.log("DEBUG", "Tulink bridge detected, forcing wait...")
+                             except: pass
+                        else:
+                            self.final_link_found_in_network = p.url
+                            return
 
                     # "Despertador" para acortadores y blogs
-                    is_shortener = "bit.ly" in url or "neworldtravel.com" in url or "safez.es" in url
+                    is_shortener = "bit.ly" in url or "neworldtravel.com" in url or "safez.es" in url or "tulink.org" in url
                     is_blog = "saboresmexico" in url or "chef" in url or "receta" in url
 
+                    # Si hay NewWorldTravel y se abre un bit.ly, lo dejamos ahí pero NO le damos foco.
+                    # El scanner correrá en él por si acaso tiene el link final.
+                    
                     # Fase 5: Detección de bloqueo en NewWorldTravel
-                    if "neworldtravel.com" in url:
+                    if "neworldtravel.com" in url or "google.com" in url:
+                        # Si estamos en NewWorld, desactivar aceleración agresiva porque nos detectan
+                        if "neworldtravel.com" in url:
+                            try:
+                                # NewWorldTravel detecta si el timer se acaba muy rápido. Forzamos 1.0x.
+                                p.evaluate("if (window._ACCELERATOR) window._ACCELERATOR.speed = 1.1; else window._SUSPECT_NEWORLD = true;")
+                            except: pass
+                                
+                        # CLICKER DE EMERGENCIA RAPIDO (SIMPLE)
+                        if "neworldtravel.com" in url:
+                            try:
+                                if not hasattr(self, '_last_nw_click') or time.time() - self._last_nw_click > 7:
+                                    btn = p.locator("button#contador").first
+                                    if btn.is_visible() and not btn.is_disabled():
+                                        txt = btn.inner_text().upper()
+                                        
+                                        # Solo clickear si el timer terminó de verdad (sin numeros en el texto)
+                                        import re
+                                        if not re.search(r'\d+', txt) or "ENLACE" in txt:
+                                            self._nw_click_count += 1
+                                            if self._nw_click_count > 15:
+                                                self.log("ERROR", "NewWorld button clicked 15 times without success. Dump HTML...")
+                                                try:
+                                                    with open("logs/newworld_stuck.html", "w", encoding="utf-8") as f:
+                                                        f.write(p.content())
+                                                except: pass
+                                                self.final_link_found_in_network = "FAILED:NEWWORLD_STUCK"
+                                                return
+
+                                            self.log("DEBUG", f"Natural-click NewWorld ({self._nw_click_count}/15): {txt}")
+                                            
+                                            # Intentar click por coordenadas por si hay overlays invisibles
+                                            try:
+                                                box = btn.bounding_box()
+                                                if box:
+                                                    p.mouse.click(box['x'] + box['width']/2, box['y'] + box['height']/2)
+                                                else:
+                                                    btn.click(force=True, delay=200)
+                                            except:
+                                                btn.click(force=True, delay=200)
+                                                
+                                            self._last_nw_click = time.time()
+                            except: pass
+
                         # Verificar si fue redirigido a Google (bloqueo de bot)
-                        if "google.com" in url and "zx=" in url:
-                            self.log("BLOCK", "NewWorldTravel bloqueó el bot (redirigido a Google)")
-                            self.log("HUMAN", "Requiere intervención manual: resuelve el challenge en la pestaña abierta")
-                            # Dar tiempo para resolver manualmente
-                            time.sleep(60)
-                            # Después, continuar vigilando
+                        if "google.com" in url and ("zx=" in url or "q=" in url or "search?" in url):
+                            self.log("BLOCK", "NewWorldTravel detectó velocidad/bot y mandó a Google. Cerrando...")
+                            try:
+                                if len(self.context.pages) > 1:
+                                    p.close()
+                                    continue
+                            except: pass
                             continue
 
                     if is_shortener or is_blog:
@@ -199,29 +280,39 @@ class PeliculasGDAdapter(SiteAdapter):
                         # Consultar scanner en todos los frames
                         for frame in p.frames:
                             try:
+                                # Prioridad 1: Link final directo o puente Safez
                                 found = frame.evaluate("window.FINAL_LINK")
                                 if found:
-                                    self.log("MARATHON", f"SUCCESS! Scanner found link in frame: {found[:60]}...")
-                                    # Limpiar redirectores si es necesario
-                                    if "redir/?" in found: found = found.split("redir/?")[-1]
+                                    # Si es safez, seguimos vigilando para llegar al final, pero lo reportamos
+                                    if "safez.es" in found:
+                                        self.log("MARATHON", f"Bridge found: {found[:50]}... Navigating...")
+                                        p.goto(found, wait_until="networkidle", timeout=30000)
+                                        frame.evaluate("window.FINAL_LINK = null;")
+                                        continue
+
+                                    self.log("MARATHON", f"SUCCESS! Final link found: {found[:60]}...")
                                     self.final_link_found_in_network = found
                                     return
+                                
+                                # Prioridad 2: Link extraído de onclick (l.php?o=...)
+                                onclick_url = frame.evaluate("window.EXTRACTED_ONCLICK")
+                                if onclick_url and "l.php" in onclick_url:
+                                    self.log("MARATHON", f"DIRECT BYPASS: Navigating to extracted onclick URL: {onclick_url[:60]}...")
+                                    # Navegar directamente en lugar de clickear
+                                    p.goto(onclick_url, wait_until="networkidle", timeout=30000)
+                                    frame.evaluate("window.EXTRACTED_ONCLICK = null;") # Limpiar
+                                    return # Si navegamos, salimos de este check para esperar el nuevo URL en el próximo loop
                             except: pass
                         
-                        # Acción agresiva ocasional para despertar la página
+                            # Acción agresiva ocasional para despertar la página
                         elapsed_since_start = int(time.time() - start_time)
-                        if elapsed_since_start % 15 == 0:
+                        if elapsed_since_start % 10 == 0:
                             try:
-                                self.log("DEBUG", f"Waking up page: {url[:30]}...")
-                                p.bring_to_front()
-                                # Movimiento errático y scroll
-                                p.mouse.move(random.randint(200, 600), random.randint(200, 600))
-                                p.mouse.wheel(0, 400)
-                                time.sleep(0.5)
-                                p.mouse.wheel(0, -200)
-                                # Clic en el centro (a veces necesario para activar timers de 'humano')
-                                p.mouse.click(400, 400)
-                                p.keyboard.press("PageDown")
+                                # Movimientos suaves sin click automático (evita popups infinitos)
+                                p.mouse.move(random.randint(100, 700), random.randint(100, 700), steps=5)
+                                p.mouse.wheel(0, random.randint(200, 500))
+                                time.sleep(0.3)
+                                p.mouse.wheel(0, random.randint(-400, -100))
                             except: pass
                 except: continue
 

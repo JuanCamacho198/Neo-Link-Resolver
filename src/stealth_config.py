@@ -39,7 +39,7 @@ def apply_stealth_to_context(context: BrowserContext) -> None:
         context.add_init_script("""
             // Sobrescribir la detección de webdriver
             Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
+                get: () => false
             });
             
             // Sobrescribir plugins con objetos realistas
@@ -123,10 +123,6 @@ def apply_stealth_to_context(context: BrowserContext) -> None:
 def setup_popup_handler(context: BrowserContext, auto_close: bool = True) -> None:
     """
     Configura el manejo automático de popups y pestañas no deseadas.
-    
-    Args:
-        context: Contexto del navegador
-        auto_close: Si True, cierra automáticamente popups de ads
     """
     if not auto_close:
         return
@@ -136,7 +132,7 @@ def setup_popup_handler(context: BrowserContext, auto_close: bool = True) -> Non
         'doubleclick.net', 'googlesyndication.com', 'popads.net',
         'exoclick.com', 'adsterra.com', 'clickadu.com', 'propellerads.com',
         'juicyads.com', 'popcash.net', 'adf.ly', 'monetag.com',
-        'about:blank'
+        'vimeo.com', 'vk.com', 'facebook.com', 'twitter.com', 'instagram.com'
     ]
     
     import json
@@ -149,42 +145,87 @@ def setup_popup_handler(context: BrowserContext, auto_close: bool = True) -> Non
                 ad_patterns = list(set(ad_patterns + config.get('ad_domains', [])))
         except:
             pass
+
+    # Bloqueo a nivel de RED para Vimeo (Eliminamos doubleclick por si acaso)
+    def intercept_route(route):
+        url = route.request.url.lower()
+        # Bloquear solo lo más pesado/intrusivo
+        if any(ad in url for ad in ['vimeo.com', 'doubleclick.net', 'googlesyndication', 'popads', 'onclickads']):
+            return route.abort()
+        return route.continue_()
+    
+    context.route("**/*", intercept_route)
     
     def handle_popup(page: Page):
-        """Maneja popups automáticamente."""
+        """Maneja popups automáticamente con respuesta rápida."""
         try:
-            # Esperar un poco a que la URL se estabilice
-            page.wait_for_timeout(500)
-            url = page.url
-            
-            # NO cerrar la página principal
-            if len(context.pages) <= 1:
-                return
-
-            # Si el popup es exactamente el mismo URL que la página principal, ignorar silenciosamente
-            # Buscamos la primera página que suele ser la principal
-            main_page = context.pages[0]
-            if page == main_page:
-                return
+            # Identificar quién es esta página en el contexto
+            all_pages = context.pages
+            if not all_pages: return
                 
-            main_url = main_page.url
-            if url == main_url or url == main_url + "/":
-                logger.info(f"Closing clone popup of main page: {url[:40]}...")
+            try:
+                page_index = all_pages.index(page)
+            except ValueError:
+                return # Ya no existe
+
+            # NUNCA cerrar la página principal (índice 0)
+            if page_index == 0:
+                return
+
+            # Esperar a que la URL se estabilice
+            page.wait_for_timeout(500)
+            url = page.url.lower()
+            
+            # 1. Dominios críticos que NUNCA debemos cerrar (incluye puentes y blogs necesarios)
+            important_domains = [
+                'safez.es', 'neworldtravel.com', 'peliculasgd.net', 'google.drive', 
+                'domk5.net', 'google.com/drive', 'tulink.org', 'bit.ly',
+                'saboresmexico', 'recetario', 'chef', 'mexico'
+            ]
+            if any(dom in url for dom in important_domains):
+                return
+
+            # 2. Si el popup tiene un botón de "Continuar", NO lo cerramos (podría ser un paso real)
+            try:
+                has_continue = page.evaluate("""() => {
+                    const text = document.body.innerText.toUpperCase();
+                    return text.includes('CONTINUAR') || text.includes('VINCULO') || text.includes('ENLACE') || !!document.querySelector('button#contador');
+                }""")
+                if has_continue:
+                    logger.debug(f"Popup with 'continue' button detected, keeping open: {url[:60]}")
+                    return
+            except: pass
+
+            # 3. Cierre de basura conocida
+            if any(pattern in url for pattern in ad_patterns):
+                logger.info(f"Auto-closing ad popup (index {page_index}): {url[:60]}")
                 page.close()
                 return
 
-            logger.info(f"Popup detected: {url[:60]}")
+            # 4. Esperar un poco más para otros popups por si cambian de URL
+            page.wait_for_timeout(1000)
+            url = page.url.lower()
             
-            # Si es un ad conocido, cerrar inmediatamente
-            if any(pattern in url.lower() for pattern in ad_patterns):
-                logger.info(f"Auto-closing ad popup: {url[:60]}")
+            if len(context.pages) <= 1: return
+            if page == context.pages[0]: return
+                
+            # Clon de la principal
+            main_page = context.pages[0]
+            if url == main_page.url.lower() or url == main_page.url.lower() + "/":
                 page.close()
-            else:
-                # Si no es ad conocido, dejarlo abierto pero con log nivel bajo
-                logger.debug(f"Unknown popup opened: {url[:60]}")
+                return
+
+            if any(dom in url for dom in important_domains): return
+
+            # Volver a chequear tras la espera
+            if any(pattern in url for pattern in ad_patterns):
+                page.close()
+                return
+
+            logger.debug(f"Popup kept open (index {page_index}): {url[:60]}")
         except Exception as e:
             logger.debug(f"Error handling popup: {e}")
-    
+
     # Registrar el handler
     context.on("page", handle_popup)
     logger.info(f"Popup auto-close handler registered ({len(ad_patterns)} patterns)")

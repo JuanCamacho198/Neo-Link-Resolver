@@ -26,25 +26,30 @@ class TimerInterceptor:
         # Aquí dividimos el delay por el factor de velocidad.
         acceleration_script = f"""
         (() => {{
-            const factor = {self.speed_factor};
-            const originalSetTimeout = window.setTimeout;
-            const originalSetInterval = window.setInterval;
+            if (window._ACCELERATOR_READY) return;
+            
+            window._ACCELERATOR = {{
+                speed: {self.speed_factor},
+                originalSetTimeout: window.setTimeout,
+                originalSetInterval: window.setInterval
+            }};
 
             window.setTimeout = function(callback, delay, ...args) {{
-                if (delay > 2000) {{ // Solo acelerar timers > 2s para no romper animaciones
-                    delay = delay / factor;
+                if (delay > 2000) {{ // Solo acelerar timers > 2s
+                    delay = delay / window._ACCELERATOR.speed;
                 }}
-                return originalSetTimeout(callback, delay, ...args);
+                return window._ACCELERATOR.originalSetTimeout(callback, delay, ...args);
             }};
 
             window.setInterval = function(callback, delay, ...args) {{
                 if (delay > 2000) {{
-                    delay = delay / factor;
+                    delay = delay / window._ACCELERATOR.speed;
                 }}
-                return originalSetInterval(callback, delay, ...args);
+                return window._ACCELERATOR.originalSetInterval(callback, delay, ...args);
             }};
             
-            console.log("Timer acceleration active: delays > 2s are now " + factor + "x faster");
+            window._ACCELERATOR_READY = true;
+            console.log("Timer acceleration active (Speed factor: " + window._ACCELERATOR.speed + ")");
         }})();
         """
         
