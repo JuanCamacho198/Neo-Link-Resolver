@@ -10,12 +10,12 @@ from resolver import LinkResolver
 from logger import get_logger
 
 def test_zootopia():
-    print("!!! STARTING UNIQUE TEST FOR ZOOTOPIA !!!")
-    url = "https://www.peliculasgd.net/zootopia-2-2025-web-dl-1080p-latino-googledrive/"
+    print("!!! STARTING TEST FOR WICKED !!!")
+    url = "https://www.peliculasgd.net/wicked-por-siempre-2025-web-dl-1080p-latino-googledrive/"
     
     logger = get_logger()
     logger.register_callback(lambda lv, msg: print(f"[{lv}] {msg}"))
-    logger.info(f"[*] Iniciando prueba para Zootopia 2: {url}")
+    logger.info(f"[*] Iniciando prueba para Wicked: {url}")
     
     resolver = LinkResolver(headless=False, use_persistent=True)
     try:
