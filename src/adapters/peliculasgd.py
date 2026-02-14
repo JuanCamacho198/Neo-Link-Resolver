@@ -1,304 +1,198 @@
-import time
-import random
-import urllib.parse
+"""
+adapters/peliculasgd.py - Adaptador para peliculasgd.net
+Implementa el flujo completo de 7 pasos documentado en PLAN.md
+"""
+
 import re
-import os
-from typing import List, Optional, Dict
-from playwright.sync_api import Page, BrowserContext
-
+import time
+from typing import List, Dict, Optional
+from playwright.sync_api import Page
 from .base import SiteAdapter
-try:
-    from matcher import LinkOption
-    from url_parser import extract_metadata_from_url
-    from config import SearchCriteria
-except ImportError:
-    from ..matcher import LinkOption
-    from ..url_parser import extract_metadata_from_url
-    from ..config import SearchCriteria
+from matcher import LinkOption
+from config import TIMEOUT_NAV, TIMEOUT_ELEMENT, AD_WAIT_SECONDS
+from human_sim import random_delay, simulate_human_behavior, human_mouse_move
+from url_parser import extract_metadata_from_url
 
-TIMEOUT_NAV = 40000
-MAX_CLICK_ATTEMPTS = 5
 
 class PeliculasGDAdapter(SiteAdapter):
-    def __init__(self, context: BrowserContext, criteria: SearchCriteria = None):
-        super().__init__(context, criteria)
-        self.final_link_found_in_network = None
+    """
+    Adaptador optimizado para peliculasgd.net
+    Usa el contexto persistente y cookies para resolver el link directamente.
+    """
 
     def can_handle(self, url: str) -> bool:
-        return "peliculasgd.net" in url or "peliculasgd.co" in url
+        return "peliculasgd.net" in url.lower() or "peliculasgd.co" in url.lower()
 
     def name(self) -> str:
         return "PeliculasGD"
 
     def resolve(self, url: str) -> LinkOption:
+        """
+        Detección directa del enlace final usando cookies y network interception.
+        """
         page = self.context.new_page()
-        
-        def on_response(response):
-            try:
-                r_url = response.url
-                if "domk5.net" in r_url or ("drive.google.com" in r_url and "/view" in r_url):
-                    if not self.final_link_found_in_network:
-                        self.log("NETWORK", f"Final: {r_url[:60]}...")
-                        self.final_link_found_in_network = r_url
-            except: pass
-            
-        def on_request(request):
-            try:
-                r_url = request.url
-                if any(host in r_url for host in ["safez.es", "domk5.net", "drive.google.com"]):
-                    if not self.final_link_found_in_network and "safez.es" in r_url:
-                        self.final_link_found_in_network = r_url
-            except: pass
-            
-        self.context.on("response", on_response)
-        self.context.on("request", on_request)
+
+        # Configurar interceptación para capturar links de descarga en el tráfico
+        detected_links = []
+        def handle_request(request):
+            r_url = request.url
+            if any(p in r_url for p in ["drive.google.com", "mega.nz", "mediafire.com", "1fichier.com"]):
+                if "/view" in r_url or "/file" in r_url or "mega.nz/file" in r_url:
+                    detected_links.append(r_url)
+
+        page.on("request", handle_request)
 
         try:
-            self.log("INIT", f"Starting: {url}")
+            self.log("INIT", f"Accediendo a: {url}")
             page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT_NAV)
             
-            # Paso 1
-            self.log("STEP1", "Clicking 'Enlaces Públicos'...")
-            if "miembros-vip" in page.url:
-                page.go_back()
-                time.sleep(2)
+            # Extraer cookies de la sesión actual
+            cookies = self.context.cookies()
+            self.log("AUTH", f"Sesión activa con {len(cookies)} cookies detectadas")
 
-            target = page.wait_for_selector("a:has(img[src*='cxx']), a:has-text('Enlaces Públicos')", timeout=15000)
-            target.hover()
-            time.sleep(random.uniform(0.5, 1.2))
-            target.click()
-            time.sleep(5)
+            # BUSQUEDA DIRECTA DEL TOKEN 'f' O 'id'
+            # En PeliculasGD, el botón de descarga suele tener un link a r.php
+            self.log("EXTRACT", "Buscando token de redirección...")
             
-            # Paso 2-3
+            # Intentar encontrarlo en el HTML sin hacer clic
+            html = page.content()
+            # Patrones comunes en PeliculasGD
+            token_match = re.search(r'(r\.php\?f=|l\.php\?o=)([a-zA-Z0-9+/=]+)', html)
+            if not token_match:
+                token_match = re.search(r'acortame\.site/([a-zA-Z0-9]+)', html)
+            
             redir_url = None
-            for _ in range(10):
-                for p in self.context.pages:
-                    try:
-                        if p.is_closed(): continue
-                        aqui = p.query_selector("a:has-text('AQUI'), a:has-text('Ingresa'), a[href*='tulink.org']")
-                        if aqui:
-                            redir_url = aqui.get_attribute("href")
-                            if redir_url: break
-                    except: continue
-                if redir_url: break
-                time.sleep(2)
+            if token_match:
+                token = token_match.group(2) if token_match.lastindex >= 2 else token_match.group(1)
+                prefix = token_match.group(1)
+                # Si es r.php o l.php, construir URL de neworldtravel
+                if "php" in prefix:
+                    redir_url = f"https://neworldtravel.com/{prefix}{token}"
+                else:
+                    redir_url = f"https://acortame.site/{token}"
+                self.log("EXTRACT", f"URL de redirección encontrada: {redir_url[:60]}...")
+            else:
+                # Si no está en el HTML, buscar el botón y extraer su href
+                btn_selectors = [
+                    "a:has(img[src*='cxx'])",
+                    "a:has-text('Enlaces Públicos')",
+                    "a:has-text('VER ENLACES')",
+                    "a:has-text('Descargar')",
+                    ".btn-download",
+                    "#download_link"
+                ]
+                
+                btn = None
+                for sel in btn_selectors:
+                    btn = page.query_selector(sel)
+                    if btn and btn.is_visible():
+                        break
+
+                if btn:
+                    href = btn.get_attribute("href")
+                    if href and ("r.php" in href or "acortame" in href or "neworld" in href):
+                        redir_url = href
+                    else:
+                        # Si no tiene href directo o es javascript:void(0), hay que hacer clic
+                        self.log("NAV", "Haciendo clic para revelar acortador...")
+                        try:
+                            # Configurar detección de nueva página (popup)
+                            with self.context.expect_page(timeout=10000) as new_page_info:
+                                btn.click()
+                            new_p = new_page_info.value
+                            
+                            # Esperar a que la URL del popup se estabilice (no sea about:blank o la home)
+                            start_wait = time.time()
+                            while time.time() - start_wait < 5:
+                                current_p_url = new_p.url
+                                if "r.php" in current_p_url or "acortame" in current_p_url or "neworld" in current_p_url:
+                                    redir_url = current_p_url
+                                    break
+                                time.sleep(1)
+                            
+                            if not redir_url:
+                                redir_url = new_p.url
+                                
+                            new_p.close()
+                        except Exception as e:
+                            self.log("WARNING", f"Error al clickear/capturar popup: {e}")
+                            # Fallback: ver si el link apareció en la página actual
+                            new_url = page.url
+                            if new_url != url:
+                                redir_url = new_url
 
             if not redir_url:
-                raise Exception("No link (AQUI)")
-
-            self.log("STEP3", f"Redirect: {redir_url[:50]}...")
-            
-            blog_page = self.context.new_page()
-            blog_page.goto(redir_url, referer=url, timeout=TIMEOUT_NAV)
-            
-            self._marathon_watch(blog_page)
-            
-            if self.final_link_found_in_network:
-                return self._create_result(self.final_link_found_in_network, url)
-            
-            raise Exception("No link after marathon")
-
-        finally:
-            self.context.on("response", on_response)
-            self.context.on("request", on_request)
-
-    def _try_click_button(self, page: Page, btn) -> bool:
-        """
-        Intenta múltiples estrategias de click. Retorna True si logró navegar.
-        """
-        try:
-            # Estrategia 1: Intentar obtener nueva página desde onclick
-            initial_urls = set(p.url for p in self.context.pages if not p.is_closed())
-            
-            # Ejecutar onclick directamente
-            try:
-                result = btn.evaluate("""el => {
-                    if (el.onclick) {
-                        el.onclick();
-                        return 'executed';
-                    }
-                    return 'no onclick';
-                }""")
-                self.log("DEBUG", f"onclick result: {result}")
-                time.sleep(2)
-                
-                # Check si cambió la URL
-                current_urls = set(p.url for p in self.context.pages if not p.is_closed())
-                new_pages = current_urls - initial_urls
-                if new_pages:
-                    for new_url in new_pages:
-                        self.log("INFO", f"Navigation to: {new_url[:50]}...")
-                        # Verificar si es safez
-                        if "safez.es" in new_url or "domk5" in new_url:
-                            self.final_link_found_in_network = new_url
-                            return True
-            except Exception as e:
-                self.log("DEBUG", f"onclick exec error: {e}")
-
-            # Estrategia 2: Click con expect_page
-            try:
-                with self.context.expect_page(timeout=3000) as new_page_info:
-                    btn.click()
-                new_p = new_page_info.value
-                new_url = new_p.url
-                self.log("INFO", f"New tab opened: {new_url[:50]}...")
-                if "safez.es" in new_url or "domk5" in new_url:
-                    self.final_link_found_in_network = new_url
-                    return True
-            except:
-                pass
-
-            # Estrategia 3: JavaScript click forzado
-            try:
-                btn.evaluate("""el => {
-                    el.click();
-                    // Forzar dispatchEvent
-                    el.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
-                }""")
-                time.sleep(2)
-            except Exception as e:
-                self.log("DEBUG", f"JS click error: {e}")
-
-            # Estrategia 4: Forzar window.location directamente
-            try:
-                # Buscar la URL en el onclick del botón
-                onclick = btn.get_attribute("onclick") or ""
-                url_match = re.search(r"['\"](https?://[^\"']+)['\"]", onclick)
-                if url_match:
-                    direct_url = url_match.group(1)
-                    self.log("INFO", f"Direct navigation to: {direct_url[:50]}...")
-                    page.goto(direct_url, timeout=30000)
-                    self.final_link_found_in_network = direct_url
-                    return True
-                
-                # Buscar en data-url o similar
-                data_url = btn.get_attribute("data-url") or btn.get_attribute("data-href") or ""
-                if data_url and "http" in data_url:
-                    self.log("INFO", f"Navigate via data-url: {data_url[:50]}...")
-                    page.goto(data_url, timeout=30000)
-                    self.final_link_found_in_network = data_url
-                    return True
-            except Exception as e:
-                self.log("DEBUG", f"Direct nav error: {e}")
-                
-            return False
-            
-        except Exception as e:
-            self.log("DEBUG", f"_try_click_button error: {e}")
-            return False
-
-    def _marathon_watch(self, page: Page):
-        self.log("MARATHON", "Watching...")
-        start_time = time.time()
-        self._nw_click_count = 0
-        
-        while time.time() - start_time < 240:
-            if self.final_link_found_in_network: 
-                return
-
-            try:
-                active_pages = [p for p in self.context.pages if not p.is_closed()]
-                if not active_pages:
-                    time.sleep(5)
-                    active_pages = [p for p in self.context.pages if not p.is_closed()]
-                    if not active_pages:
+                # Ultimo recurso: buscar cualquier link que no sea ad en la zona de descarga
+                self.log("EXTRACT", "Buscando cualquier link sospechoso de ser acortador...")
+                links = page.query_selector_all("a")
+                for l in links:
+                    h = l.get_attribute("href")
+                    if h and ("neworldtravel" in h or "acortame" in h):
+                        redir_url = h
                         break
-            except:
-                return
+
+            if not redir_url:
+                raise Exception("No se pudo extraer la URL de redirección (acortador)")
+
+            # NAVEGACIÓN DIRECTA AL ACORTADOR CON REFERER
+            self.log("NAV", f"Saltando al acortador: {redir_url[:60]}...")
             
-            try:
-                nw_page = next((p for p in active_pages if "neworldtravel.com" in p.url.lower()), None)
-                safez_page = next((p for p in active_pages if "safez.es" in p.url.lower()), None)
+            # Si tenemos el ShortenerChainResolver, lo usamos
+            if self.shortener_resolver:
+                final_link = self.shortener_resolver.resolve(redir_url, page, referer=url)
+                if final_link:
+                    return self._create_result(final_link, url)
+
+            # Fallback si no hay resolver de acortadores o falló
+            page.goto(redir_url, referer=url, timeout=TIMEOUT_NAV)
+            
+            # Esperar a que el link aparezca en el tráfico o en la página
+            start_wait = time.time()
+            while time.time() - start_wait < 60:
+                if detected_links:
+                    return self._create_result(detected_links[0], url)
                 
-                if safez_page:
-                    safez_page.bring_to_front()
-                elif nw_page:
-                    nw_page.bring_to_front()
-            except: pass
+                # Buscar botones de "Obtener Link" o "Ingresa"
+                for btn_text in ["Ingresar", "Ingresa", "Link", "Vínculo", "Continuar", "Enlace"]:
+                    target = page.query_selector(f"a:has-text('{btn_text}'), button:has-text('{btn_text}')")
+                    if target and target.is_visible():
+                        opacity = target.evaluate("el => getComputedStyle(el).opacity")
+                        if float(opacity) > 0.5:
+                            self.log("NAV", f"Botón final detectado: {btn_text}. Clickeando...")
+                            target.click()
+                            time.sleep(3)
+                            break
+                
+                # Acelerar timers si es posible
+                if self.timer_interceptor:
+                    self.timer_interceptor.accelerate_timers(page)
+                    if "neworldtravel" in page.url or "acortame" in page.url:
+                        self.timer_interceptor.skip_peliculasgd_timer(page)
+                
+                time.sleep(2)
 
-            for p in active_pages:
-                try:
-                    url = p.url.lower()
+            raise Exception("No se pudo obtener el link final tras la redirección")
 
-                    if "domk5.net" in url or "safez.es" in url or ("drive.google.com" in url and "/view" in url):
-                        if "safez.es" in url:
-                            self.log("MARATHON", f"Safez: {url[:50]}")
-                        else:
-                            self.final_link_found_in_network = p.url
-                            return
-
-                    is_shortener = "bit.ly" in url or "neworldtravel.com" in url or "safez.es" in url
-
-                    if "neworldtravel.com" in url:
-                        try:
-                            p.evaluate("if (window._ACCELERATOR) { window._ACCELERATOR.speed = 1.0; window._ACCELERATOR.active = false; }")
-                        except: pass
-                        
-                        try:
-                            if not hasattr(self, '_last_nw_click') or time.time() - self._last_nw_click > 5:
-                                if not hasattr(self, '_nw_entry_time'):
-                                    self._nw_entry_time = time.time()
-                                    self.log("INFO", "NW entered")
-                                
-                                if time.time() - self._nw_entry_time < 5:
-                                    continue
-                                    
-                                selectors = ["button#contador", "button.button.success", "button.success"]
-                                btn = None
-                                for sel in selectors:
-                                    try:
-                                        el = p.locator(sel).first
-                                        if el.is_visible():
-                                            btn = el
-                                            break
-                                    except: continue
-                                
-                                if btn and not btn.is_disabled():
-                                    txt = btn.inner_text().upper()
-                                    
-                                    has_numbers = re.search(r'\d+', txt)
-                                    if has_numbers:
-                                        self.log("DEBUG", f"Timer: {txt[:30]}")
-                                        continue
-                                    
-                                    is_ready = ("CONTINUAR" in txt or "ENLACE" in txt or "VINCULO" in txt or txt == "")
-                                    
-                                    if is_ready:
-                                        self._nw_click_count += 1
-                                        self.log("INFO", f"Click {self._nw_click_count}/{MAX_CLICK_ATTEMPTS}")
-                                        
-                                        if self._nw_click_count >= MAX_CLICK_ATTEMPTS:
-                                            self.log("ERROR", f"Max {MAX_CLICK_ATTEMPTS}. Stopping.")
-                                            self.final_link_found_in_network = "FAILED:MAX_ATTEMPTS"
-                                            return
-
-                                        # NUEVA ESTRATEGIA DE CLICK
-                                        success = self._try_click_button(p, btn)
-                                        if success:
-                                            return
-                                        
-                                        self._last_nw_click = time.time()
-                        except Exception as e:
-                            self.log("DEBUG", f"NW error: {e}")
-
-                    if "safez.es" in url:
-                        try:
-                            safez_btn = p.locator('button:has-text("Vincular"), a:has-text("Vincular")').first
-                            if safez_btn.is_visible() and not safez_btn.is_disabled():
-                                self.log("INFO", "Clicking Safez...")
-                                safez_btn.click()
-                                time.sleep(2)
-                        except: pass
-                except: continue
-
-            time.sleep(2)
+        except Exception as e:
+            self.log("ERROR", f"Fallo en resolución: {e}")
+            page.screenshot(path="logs/peliculasgd_error.png")
+            raise e
+        finally:
+            if not page.is_closed():
+                page.close()
 
     def _create_result(self, final_url: str, original_url: str) -> LinkOption:
         meta = extract_metadata_from_url(original_url)
+        provider = "Drive" if "drive.google" in final_url else "Mega" if "mega.nz" in final_url else "1Fichier" if "1fichier" in final_url else "MediaFire"
+        
         return LinkOption(
             url=final_url,
             text=f"PeliculasGD - {meta.get('quality', '1080p')}",
-            provider="GoogleDrive" if "drive.google" in final_url else "Direct",
-            quality=meta.get('quality', "1080p"),
-            format="MKV"
+            provider=provider,
+            quality=meta.get('quality', ""),
+            format=meta.get('format', "")
         )
+
+    def log(self, step: str, msg: str):
+        print(f"  [PeliculasGD:{step}] {msg}")
+

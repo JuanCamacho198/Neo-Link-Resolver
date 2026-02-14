@@ -27,7 +27,7 @@ class ShortenerChainResolver:
         self.chain = []
         self.page = None
 
-    def resolve(self, initial_url: str, page: Page) -> Optional[str]:
+    def resolve(self, initial_url: str, page: Page, referer: Optional[str] = None) -> Optional[str]:
         """
         Punto de entrada principal. Intenta resolver la cadena hasta un link de descarga.
         """
@@ -41,7 +41,9 @@ class ShortenerChainResolver:
             self.logger.info(f"Chain step {depth + 1}/{self.MAX_CHAIN_DEPTH}: {current_url[:60]}")
             
             # 1. Ejecutar el paso (navegar y esperar)
-            next_url = self._follow_step(current_url)
+            # Solo usar referer en el primer paso si se proporciona
+            step_referer = referer if depth == 0 else None
+            next_url = self._follow_step(current_url, referer=step_referer)
             
             if not next_url:
                 self.logger.warning(f"Chain broke at step {depth + 1}")
@@ -64,13 +66,13 @@ class ShortenerChainResolver:
         self.logger.error(f"Max chain depth ({self.MAX_CHAIN_DEPTH}) reached")
         return None
 
-    def _follow_step(self, url: str) -> Optional[str]:
+    def _follow_step(self, url: str, referer: Optional[str] = None) -> Optional[str]:
         """Realiza un paso de navegación y detección."""
         try:
             # Si ya estamos en la URL (por redirect previo), no navegar de nuevo
             if self.page.url != url:
                 self.logger.info(f"Navigating to {url[:60]}...")
-                self.last_response = self.page.goto(url, wait_until="commit", timeout=45000)
+                self.last_response = self.page.goto(url, wait_until="commit", timeout=45000, referer=referer)
             
             # Aplicar stealth y aceleración (silenciar errores de navegación rápida)
             try:
@@ -94,11 +96,19 @@ class ShortenerChainResolver:
                 return captured
 
             # 2. Manejar timers y clicks si es necesario
+            # Si detectamos que es un acortador de PeliculasGD, aplicar aceleración de timer específica
+            if "neworldtravel" in self.page.url or "acortame" in self.page.url:
+                try:
+                    self.timer.skip_peliculasgd_timer(self.page)
+                except Exception as e:
+                    self.logger.warning(f"Error applying specific timer skip: {e}")
+
             if self.timer.wait_and_click_when_ready(self.page, timeout_ms=self.TIMER_WAIT_TIMEOUT):
                 self.page.wait_for_timeout(2000)
                 # Verificar si el click causó una navegación o redirect
                 new_url = self.page.url
                 if new_url != url:
+                    self.logger.success(f"Successfully moved to: {new_url[:60]}")
                     return new_url
             
             # 3. Buscar la "siguiente" URL en el DOM (redirecciones meta, assignments capturados)

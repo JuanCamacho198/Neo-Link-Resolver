@@ -18,304 +18,133 @@ from url_parser import extract_metadata_from_url
 
 class PeliculasGDAdapter(SiteAdapter):
     """
-    Adaptador para peliculasgd.net
-    
-    Implementa el flujo de 7 pasos para resolver el link final:
-    Movie page -> Enlaces Publicos -> Intermediary 1 -> Intermediary 2 ->
-    Google -> Human verification -> Ad click -> Final link
+    Adaptador optimizado para peliculasgd.net
+    Usa el contexto persistente y cookies para resolver el link directamente.
     """
 
     def can_handle(self, url: str) -> bool:
-        return "peliculasgd.net" in url.lower()
+        return "peliculasgd.net" in url.lower() or "peliculasgd.co" in url.lower()
 
     def name(self) -> str:
         return "PeliculasGD"
 
     def resolve(self, url: str) -> LinkOption:
         """
-        Ejecuta el pipeline completo de navegacion y retorna el mejor link.
+        Detección directa del enlace final usando cookies y network interception.
         """
         page = self.context.new_page()
 
-        # Activar Network Interceptor si está disponible
-        if self.network_analyzer:
-            self.network_analyzer.setup_network_interception(page, block_ads=True)
+        # Configurar interceptación para capturar links de descarga en el tráfico
+        detected_links = []
+        def handle_request(request):
+            r_url = request.url
+            if any(p in r_url for p in ["drive.google.com", "mega.nz", "mediafire.com", "1fichier.com"]):
+                if "/view" in r_url or "/file" in r_url or "mega.nz/file" in r_url:
+                    detected_links.append(r_url)
+
+        page.on("request", handle_request)
 
         try:
-            # Step 0: Abrir pagina de pelicula
-            self.log("INIT", f"Opening {url[:60]}...")
-            page.goto(url, timeout=TIMEOUT_NAV)
-            page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
+            self.log("INIT", f"Accediendo a: {url}")
+            page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT_NAV)
             
-            # Step 1: Click "Enlaces Publicos"
-            page_v1 = self._step1_click_enlaces_publicos(page)
-            
-            # Step 2: Haz clic aqui (en neworldtravel o similar)
-            page_v2 = self._step2_click_haz_clic_aqui(page_v1)
-            
-            # Step 3: Google redirect / Boton Continuar
-            page_v3 = self._step3_handle_redirect_chain(page_v2)
-            
-            # Step 4: Click primer resultado de Google
-            verification_page = self._step4_click_first_google_result(page_v3)
-            
-            # Step 5 & 6: Verificación Humana + Ad Click + Timer (Proceso combinado)
-            stage_page = self._step5_6_resolve_verification_and_timer(verification_page)
-            
-            # Step 7: Extraer link final
-            final_link_data = self._step7_extract_final_link(stage_page)
-            
-            if not final_link_data:
-                raise Exception("Failed to extract final link in step 7")
+            # Extraer cookies de la sesión actual
+            cookies = self.context.cookies()
+            self.log("AUTH", f"Sesión activa con {len(cookies)} cookies detectadas")
 
-            # Metadatos para el resultado
-            url_metadata = extract_metadata_from_url(url)
+            # BUSQUEDA DIRECTA DEL TOKEN 'f' O 'id'
+            # En PeliculasGD, el botón de descarga suele tener un link a r.php
+            self.log("EXTRACT", "Buscando token de redirección...")
             
-            return LinkOption(
-                url=final_link_data["url"],
-                text=f"PeliculasGD - {url_metadata.get('quality', '1080p')}",
-                provider=self._detect_provider(final_link_data["url"]),
-                quality=url_metadata.get('quality', ""),
-                format=url_metadata.get('format', "")
-            )
+            # Intentar encontrarlo en el HTML sin hacer clic
+            html = page.content()
+            # Patrón típico: r.php?f=xxxx
+            token_match = re.search(r'r\.php\?f=([a-zA-Z0-9+/=]+)', html)
+            
+            redir_url = None
+            if token_match:
+                token = token_match.group(1)
+                redir_url = f"https://neworldtravel.com/r.php?f={token}"
+                self.log("EXTRACT", f"Token 'f' encontrado directamente: {token[:20]}...")
+            else:
+                # Si no está en el HTML, buscar el botón y extraer su href
+                btn = page.query_selector("a:has(img[src*='cxx']), a:has-text('Enlaces Públicos')")
+                if btn:
+                    href = btn.get_attribute("href")
+                    if href and "r.php" in href:
+                        redir_url = href
+                    else:
+                        # Si no tiene href directo, hay que hacer clic (probablemente abre popup)
+                        self.log("NAV", "Haciendo clic para revelar acortador...")
+                        with self.context.expect_page() as new_page_info:
+                            btn.click()
+                        new_p = new_page_info.value
+                        new_p.wait_for_load_state("domcontentloaded")
+                        redir_url = new_p.url
+                        new_p.close()
+
+            if not redir_url:
+                raise Exception("No se pudo extraer la URL de redirección (r.php)")
+
+            # NAVEGACIÓN DIRECTA AL ACORTADOR CON REFERER
+            self.log("NAV", f"Saltando al acortador: {redir_url[:60]}...")
+            
+            # Si tenemos el ShortenerChainResolver, lo usamos
+            if self.shortener_resolver:
+                final_link = self.shortener_resolver.resolve(redir_url, page)
+                if final_link:
+                    return self._create_result(final_link, url)
+
+            # Fallback si no hay resolver de acortadores o falló
+            page.goto(redir_url, referer=url, timeout=TIMEOUT_NAV)
+            
+            # Esperar a que el link aparezca en el tráfico o en la página
+            start_wait = time.time()
+            while time.time() - start_wait < 60:
+                if detected_links:
+                    return self._create_result(detected_links[0], url)
+                
+                # Buscar botones de "Obtener Link" o "Ingresa"
+                for btn_text in ["Ingresa", "Link", "Vínculo", "Continuar"]:
+                    target = page.query_selector(f"a:has-text('{btn_text}'), button:has-text('{btn_text}')")
+                    if target and target.is_visible():
+                        opacity = target.evaluate("el => getComputedStyle(el).opacity")
+                        if float(opacity) > 0.5:
+                            self.log("NAV", f"Botón final detectado: {btn_text}. Clickeando...")
+                            target.click()
+                            time.sleep(3)
+                
+                # Acelerar timers si es posible
+                if self.timer_interceptor:
+                    self.timer_interceptor.accelerate_timers(page)
+                
+                time.sleep(2)
+
+            raise Exception("No se pudo obtener el link final tras la redirección")
 
         except Exception as e:
-            self.log("ERROR", f"Failed: {e}")
-            page.screenshot(path="logs/peliculasgd_error_final.png")
+            self.log("ERROR", f"Fallo en resolución: {e}")
+            page.screenshot(path="logs/peliculasgd_error.png")
             raise e
         finally:
             if not page.is_closed():
                 page.close()
 
-    # ---------------------------------------------------------------------------
-    # Utilidades de Navegación
-    # ---------------------------------------------------------------------------
-
-    def _wait_for_new_page(self, page: Page, trigger_action, timeout=40_000) -> Page:
-        initial_url = page.url
-        for attempt in range(3):
-            self.log("NAV", f"Interaction attempt {attempt + 1}...")
-            
-            # Limpiar overlays
-            try:
-                page.evaluate("() => { document.querySelectorAll('.fixed, [class*=\"overlay\"]').forEach(el => el.remove()); }")
-            except: pass
-
-            try:
-                with self.context.expect_page(timeout=10000) as new_page_info:
-                    trigger_action()
-                new_p = new_page_info.value
-                new_p.wait_for_load_state("domcontentloaded", timeout=15000)
-                
-                # Whitelist de dominios válidos para el flujo
-                url = new_p.url.lower()
-                valid_domains = ["google.com", "neworldtravel", "saboresmexico", "peliculasgd", "mediafire", "mega.nz", "drive.google"]
-                
-                if any(d in url for d in valid_domains):
-                    self.log("NAV", f"New page valid: {url[:60]}")
-                    return new_p
-                else:
-                    self.log("NAV", f"Closing ad popup: {url[:40]}")
-                    new_p.close()
-                    continue
-            except:
-                # Si no hay nueva página, ver si navegó en la misma
-                page.wait_for_timeout(3000)
-                if page.url != initial_url:
-                    self.log("NAV", f"Same-tab navigation: {page.url[:60]}")
-                    return page
+    def _create_result(self, final_url: str, original_url: str) -> LinkOption:
+        meta = extract_metadata_from_url(original_url)
+        provider = "Drive" if "drive.google" in final_url else "Mega" if "mega.nz" in final_url else "1Fichier" if "1fichier" in final_url else "MediaFire"
         
-        return page
+        return LinkOption(
+            url=final_url,
+            text=f"PeliculasGD - {meta.get('quality', '1080p')}",
+            provider=provider,
+            quality=meta.get('quality', ""),
+            format=meta.get('format', "")
+        )
 
     def log(self, step: str, msg: str):
         print(f"  [PeliculasGD:{step}] {msg}")
 
-    # ---------------------------------------------------------------------------
-    # Pasos del Flow
-    # ---------------------------------------------------------------------------
-
-    def _step1_click_enlaces_publicos(self, page: Page) -> Page:
-        self.log("STEP1", "Looking for Enlaces Publicos link (image)...")
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
-        
-        selectors = [
-            "a:has(img[src*='cxx'])",
-            "a:has(img.wp-image-125438)",
-            "xpath=//strong[contains(text(), 'Enlaces Públicos')]/preceding-sibling::a[1]",
-            "a:has-text('Enlaces Públicos')",
-        ]
-        
-        target = None
-        for sel in selectors:
-            target = page.query_selector(sel)
-            if target: break
-            
-        if not target:
-            raise Exception("Enlaces Publicos link not found")
-            
-        return self._wait_for_new_page(page, lambda: target.click())
-
-    def _step2_click_haz_clic_aqui(self, page: Page) -> Page:
-        self.log("STEP2", "Looking for 'Haz clic aquí'...")
-        page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
-        random_delay(2.0, 4.0)
-        
-        target = page.query_selector("text='Haz clic aquí'") or page.query_selector("a:has-text('Haz clic')")
-        if not target:
-            target = page.query_selector(".text:has-text('Haz clic')")
-            
-        if not target:
-            raise Exception("'Haz clic aqui' button not found")
-            
-        return self._wait_for_new_page(page, lambda: target.click())
-
-    def _step3_handle_redirect_chain(self, page: Page) -> Page:
-        self.log("STEP3", "Handling redirect chain to Google...")
-        page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
-        
-        btn = page.query_selector("button.button-s") or page.query_selector("a.button-s")
-        if btn:
-            self.log("STEP3", "Clicking intermediate 'Continuar' button...")
-            return self._wait_for_new_page(page, lambda: btn.click())
-            
-        start = time.time()
-        while time.time() - start < 20:
-            if "google.com/search" in page.url:
-                return page
-            page.wait_for_timeout(2000)
-            
-        return page
-
-    def _step4_click_first_google_result(self, page: Page) -> Page:
-        self.log("STEP4", "Clicking first Google result...")
-        
-        # Esperar a que se quite el redirector href.li
-        try:
-            page.wait_for_url("**/google.com/search*", timeout=15000)
-        except:
-            self.log("WARNING", f"Never reached Google. Current URL: {page.url}")
-
-        page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
-        
-        # Aceptar cookies de Google si aparecen
-        try:
-            page.evaluate("() => { document.querySelectorAll('button').forEach(b => { if(b.innerText.includes('Aceptar') || b.innerText.includes('Accept all')) b.click(); })}")
-        except: pass
-
-        # Intentar varios selectores para el primer resultado
-        selectors = [
-            "#search a h3",
-            "a h3",
-            "#rso a[href]:not([href*='google']) h3",
-            "#rso a h3"
-        ]
-        
-        target = None
-        for sel in selectors:
-            try:
-                el = page.wait_for_selector(sel, timeout=10000)
-                if el:
-                    target = page.evaluate_handle("el => el.closest('a')", el).as_element()
-                    if target:
-                        self.log("STEP4", f"Found result with selector: {sel}")
-                        break
-            except: continue
-        
-        if not target:
-            # Screenshot de debug
-            page.screenshot(path="logs/peliculasgd_google_fail.png")
-            raise Exception("Google search results not found")
-            
-        return self._wait_for_new_page(page, lambda: target.click())
-
-    def _step5_6_resolve_verification_and_timer(self, page: Page) -> Page:
-        self.log("STEP5/6", "Resolving blog verification (timer + ad click)...")
-        page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
-        
-        simulate_human_behavior(page, intensity="heavy")
-        
-        start_time = time.time()
-        ad_clicked = False
-        
-        while time.time() - start_time < 150:
-            selectors = [
-                "button:has-text('Continuar')", 
-                "a.button-s:has-text('Continuar')",
-                "button:has-text('Obtener Vínculo')",
-                "a:has-text('Obtener Vínculo')",
-                "button.button-s" 
-            ]
-            
-            for sel in selectors:
-                btn = page.query_selector(sel)
-                if btn and btn.is_visible():
-                    self.log("STEP5/6", f"Found potential button: {btn.inner_text()}")
-                    opacity = btn.evaluate("el => getComputedStyle(el).opacity")
-                    if float(opacity) > 0.8:
-                        return self._wait_for_new_page(page, lambda: btn.click())
-
-            if not ad_clicked:
-                self.log("STEP5/6", "Looking for ad to trigger timer...")
-                ads = page.query_selector_all("ins.adsbygoogle, iframe[src*='googleads'], #click_message")
-                for ad in ads:
-                    if ad.is_visible():
-                        self.log("STEP5/6", "Clicking ad to start timer...")
-                        try:
-                            ad.click()
-                            ad_clicked = True
-                            page.wait_for_timeout(3000)
-                            self._close_trash_tabs(page)
-                            break
-                        except: continue
-
-            if self.timer_interceptor:
-                self.timer_interceptor.accelerate_timers(page)
-                self.timer_interceptor.skip_peliculasgd_timer(page)
-
-            page.wait_for_timeout(5000)
-            self.log("STEP5/6", f"Waiting... {int(time.time() - start_time)}s")
-            
-        raise Exception("Failed to resolve blog verification (timer timeout)")
-
-    def _step7_extract_final_link(self, page: Page) -> Optional[Dict]:
-        self.log("STEP7", "Extracting final link...")
-        page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
-        
-        url = page.url.lower()
-        if "drive.google.com" in url or "mega.nz" in url or "mediafire.com" in url:
-            return {"url": page.url}
-            
-        patterns = [
-            "a[href*='drive.google.com']",
-            "a[href*='mega.nz']",
-            "a[href*='mediafire.com']",
-            "a[href*='1fichier.com']"
-        ]
-        for p in patterns:
-            el = page.query_selector(p)
-            if el:
-                href = el.get_attribute("href")
-                if href: return {"url": href}
-                
-        content = page.content()
-        matches = re.findall(r'https?://(?:mega\.nz|drive\.google\.com|mediafire\.com|1fichier\.com)/[^\s"\'<>]+', content)
-        if matches:
-            return {"url": matches[0]}
-            
-        return None
-
-    def _close_trash_tabs(self, main_page: Page):
-        for p in self.context.pages:
-            if p != main_page and not p.is_closed():
-                url = p.url.lower()
-                if not any(d in url for d in ["google", "peliculasgd", "mediafire", "mega", "drive"]):
-                    p.close()
-
-    def _detect_provider(self, url: str) -> str:
-        if "drive.google" in url: return "GoogleDrive"
-        if "mega.nz" in url: return "Mega"
-        if "mediafire" in url: return "MediaFire"
-        return "Unknown"
 '''
 
 file_path = os.path.join('src', 'adapters', 'peliculasgd.py')

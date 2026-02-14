@@ -221,7 +221,10 @@ class TimerInterceptor:
             'a:has-text("Get Link")', 'button:has-text("Get Link")',
             'a:has-text("Continuar")', 'button:has-text("Continuar")',
             'a:has-text("Continue")', 'button:has-text("Continue")',
-            '#getLink', '.btn-success', '.get-link'
+            'a:has-text("Ingresar")', 'button:has-text("Ingresar")',
+            'a:has-text("Vínculo")', 'button:has-text("Vínculo")',
+            'div:has-text("Ingresar")', 'span:has-text("Ingresar")',
+            '#getLink', '.btn-success', '.get-link', '#btn-main'
         ]
         
         while (__import__('time').time() - start_time) * 1000 < timeout_ms:

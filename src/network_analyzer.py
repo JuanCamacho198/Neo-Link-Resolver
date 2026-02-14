@@ -63,7 +63,8 @@ class NetworkAnalyzer:
             'dropbox.com', 'zippyshare.com', 'shared.com'
         ]
         self.shortener_domains = [
-            'ouo.io', 'ouo.press', 'bc.vc', 'bit.ly', 'tinyurl.com', 'adf.ly'
+            'ouo.io', 'ouo.press', 'bc.vc', 'bit.ly', 'tinyurl.com', 'adf.ly',
+            'acortame.site', 'neworldtravel.com', 'acortame.info'
         ]
         
         if Path(config_path).exists():
