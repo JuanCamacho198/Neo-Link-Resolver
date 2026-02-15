@@ -5,8 +5,10 @@ Detecta y bloquea ads, captura redirects y encuentra links de descarga en el tr�
 
 import re
 import json
+import time
 from pathlib import Path
 from typing import List, Dict, Optional, Set
+from urllib.parse import urlparse, urljoin
 from playwright.sync_api import Page, Request, Response, Route
 from logger import get_logger
 
@@ -52,10 +54,11 @@ class NetworkAnalyzer:
             'outbrain.com', 'taboola.com', 'juicyads.com', 'popcash.net',
             'monetag.com', 'criteo.com', 'pubmatic.com', 'ad-maven.com',
             'impactify.io', 'zedo.com', 'adcash.com', 'popmyads.com', 'plugrush.com',
-            'adnxs.com', 'smartadserver.com', 'bidswitch.net', 'openx.net',
-            'rubiconproject.com', 'pubmatic.com', 'indexww.com', 'mookie1.com',
-            'casalemedia.com', 'adnxs.com', 'yieldmo.com', 'teads.tv',
-            'gumgum.com', 'triplelift.com', 'stickyadstv.com', 'spotxchange.com'
+            'smartadserver.com', 'bidswitch.net', 'openx.net',
+            'rubiconproject.com', 'indexww.com', 'mookie1.com',
+            'casalemedia.com', 'yieldmo.com', 'teads.tv',
+            'gumgum.com', 'triplelift.com', 'stickyadstv.com', 'spotxchange.com',
+            'vimeo.com', 'popads.com', 'onclickads.net'
         ]
         self.download_domains = [
             'mega.nz', 'mega.co.nz', 'mega.io', 'drive.google.com', 'docs.google.com',
@@ -203,7 +206,6 @@ class NetworkAnalyzer:
         if resource_type in blocked_types:
             page_domain = ""
             try:
-                from urllib.parse import urlparse
                 # Intentar obtener el dominio de la página que originó la request
                 if request.frame and request.frame.page:
                     page_domain = urlparse(request.frame.page.url).netloc

@@ -80,62 +80,37 @@ def main():
         language=args.language,
     )
 
-    with sync_playwright() as p:
-        # Lanzar navegador con anti-deteccion
-        browser = p.chromium.launch(
-            headless=args.headless,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-first-run",
-                "--no-default-browser-check",
-            ],
-        )
-        
-        context = browser.new_context(
-            viewport={"width": 1366, "height": 768},
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
+    # Usar LinkResolver (Centraliza la lógica de Playwright, Stealth y Analizadores)
+    from resolver import LinkResolver
+    resolver = LinkResolver(headless=args.headless)
+    
+    try:
+        result = resolver.resolve(
+            url=args.url,
+            quality=args.quality,
+            format_type=args.format,
+            providers=args.provider,
+            language=args.language
         )
 
-        try:
-            # Obtener el adaptador apropiado para la URL
-            adapter = get_adapter(args.url, context, criteria)
-            print(f"[RESOLVER] Using adapter: {adapter.name()}\n")
+        print("\n" + "=" * 70)
+        if result and result.url != "LINK_NOT_RESOLVED":
+            print(" [SUCCESS] Link resolved!")
+            print(f" URL:      {result.url}")
+            print(f" Provider: {result.provider}")
+            print(f" Score:    {result.score:.1f}/100")
+        else:
+            print(" [FAILED] Could not resolve the link.")
+        print("=" * 70 + "\n")
 
-            # Resolver el link
-            result = adapter.resolve(args.url)
+    except Exception as e:
+        print(f"\n [ERROR] Fatal error during execution: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
-            # Mostrar resultado
-            print("\n" + "=" * 70)
-            print(" RESULT")
-            print("=" * 70)
-            if result:
-                print(f" URL: {result.url}")
-                print(f" Provider: {result.provider}")
-                print(f" Quality: {result.quality or 'N/A'}")
-                print(f" Format: {result.format or 'N/A'}")
-                print(f" Score: {result.score:.1f}/100")
-            else:
-                print(" ERROR: Could not resolve link")
-            print("=" * 70)
-
-        except ValueError as e:
-            print(f"\n[ERROR] {e}")
-            print("Supported sites: peliculasgd.net, hackstore.mx")
-            sys.exit(1)
-
-        except Exception as e:
-            print(f"\n[ERROR] Unexpected error: {e}")
-            import traceback
-            traceback.print_exc()
-            sys.exit(1)
-
-        finally:
-            browser.close()
-            print("\n[EXIT] Disconnected from the Matrix.\n")
+    finally:
+        print("\n[EXIT] Disconnected from the Matrix.\n")
 
 
 if __name__ == "__main__":

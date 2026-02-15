@@ -19,36 +19,18 @@ def apply_stealth_to_page(page: Page) -> None:
     """
     Aplica técnicas de stealth a una página de Playwright para evitar detección de bots.
     """
-    # Inyectar scripts manuales de evasión siempre, independientemente de la librería
-    try:
-        page.add_init_script("""
-            // Evasión de WebDriver
-            Object.defineProperty(navigator, 'webdriver', { get: () => false });
-            
-            // Evasión de lenguajes
-            Object.defineProperty(navigator, 'languages', { get: () => ['es-ES', 'es', 'en-US', 'en'] });
-            
-            // Evasión de Plugins
-            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-            
-            // Evasión de Chrome runtime
-            window.chrome = { runtime: {} };
-            
-            // Evasión de Permissions
-            const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.query = (parameters) => (
-                parameters.name === 'notifications' ?
-                Promise.resolve({ state: Notification.permission }) :
-                originalQuery(parameters)
-            );
-        """)
-    except: pass
-
     if not STEALTH_AVAILABLE:
-        logger.info("Using manual stealth scripts (library not importable)")
+        # Script mínimo manual si la librería no está disponible
+        try:
+            page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', { get: () => false });
+                window.chrome = { runtime: {} };
+            """)
+        except: pass
         return
     
     try:
+        # La librería ya maneja la mayoría de los overrides (webdriver, languages, etc.)
         Stealth().apply_stealth_sync(page)
         logger.info("Advanced Stealth mode applied via library")
     except Exception as e:
@@ -171,15 +153,8 @@ def setup_popup_handler(context: BrowserContext, auto_close: bool = True) -> Non
         except:
             pass
 
-    # Bloqueo a nivel de RED para Vimeo (Eliminamos doubleclick por si acaso)
-    def intercept_route(route):
-        url = route.request.url.lower()
-        # Bloquear solo lo más pesado/intrusivo
-        if any(ad in url for ad in ['vimeo.com', 'doubleclick.net', 'googlesyndication', 'popads', 'onclickads']):
-            return route.abort()
-        return route.continue_()
-    
-    context.route("**/*", intercept_route)
+    # NOTA: El bloqueo de rutas (intercept_route) se delega ahora a NetworkAnalyzer
+    # para evitar conflictos de múltiples handlers de ruta en el mismo contexto.
     
     def handle_popup(page: Page):
         """Maneja popups automáticamente con respuesta rápida."""

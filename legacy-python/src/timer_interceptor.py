@@ -212,7 +212,7 @@ class TimerInterceptor:
             self.logger.warning(f"Could not force-enable buttons: {e}")
             return False
 
-    async def detect_countdown(self, page: Page) -> bool:
+    def detect_countdown(self, page: Page) -> bool:
         """Detecta si hay un countdown activo en la página."""
         script = """
         (() => {

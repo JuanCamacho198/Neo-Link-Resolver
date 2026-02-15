@@ -194,31 +194,45 @@ class LinkResolver:
                         self.logger.info("Applying stealth mode to context...")
                         apply_stealth_to_context(context)
                     
-                    # 3. Registrar handler para configurar CADA página nueva (Stealth + Timers)
+                    # 3. Registrar handler para configurar CADA página nueva (Stealth + Timers + Network)
                     def on_page_created(p):
                         try:
+                            # 1. Aplicar stealth
                             if STEALTH_AVAILABLE:
                                 from stealth_config import apply_stealth_to_page
                                 apply_stealth_to_page(p)
+                                
+                            # 2. Aplicar aceleración de timers
                             if self.accelerate_timers:
-                                # Usar try/except interno para evitar crashes por navegación rápida
                                 try:
                                     timer_interceptor.accelerate_timers(p)
                                 except Exception:
                                     pass
-                        except Exception:
-                            pass
-                    
+                            
+                            # 3. Activar interceptación de red (Ad Blocking)
+                            if self.use_network_interception:
+                                try:
+                                    network_analyzer.setup_network_interception(p, block_ads=True)
+                                except Exception:
+                                    pass
+                                    
+                        except Exception as e:
+                            self.logger.warning(f"Error configuring page: {e}")
+
                     context.on("page", on_page_created)
                     
                     # 4. Configurar manejo automático de popups
                     setup_popup_handler(context, auto_close=True)
                     
+                    # 5. Configurar la página inicial (si ya existe)
+                    if context.pages:
+                        on_page_created(context.pages[0])
+                    
                 except Exception as e:
                     self.logger.error(f"Failed to create browser context: {e}")
                     if browser:
                         browser.close()
-                    return None
+                    raise e # Re-lanzar para activar retry
 
                 try:
                     # Seleccionar adaptador
@@ -252,7 +266,12 @@ class LinkResolver:
                         result = adapter.resolve(url)
                     except Exception as e:
                         self.logger.error(f"Adapter resolution failed: {e}")
-                        return None
+                        raise e # Re-lanzar para activar retry
+
+                    if result is None:
+                        # Si el adaptador termina sin error pero sin link, lanzamos excepción
+                        # para que se intente nuevamente (tal vez fue un popup no manejado)
+                        raise Exception("Adapter finished without finding a link")
 
                     # Mostrar estadísticas de interceptación si se usaron
                     stats = network_analyzer.get_stats()

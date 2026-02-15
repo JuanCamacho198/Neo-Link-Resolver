@@ -1,0 +1,71 @@
+{
+  "manifest_version": 3,
+  "name": "Neo-Link-Resolver",
+  "version": "1.0",
+  "description": "Intelligent Link Resolver for PeliculasGD and HackStore",
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "webRequest",
+    "webNavigation",
+    "declarativeNetRequest",
+    "storage",
+    "cookies",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://hackstore.mx/*",
+    "https://peliculasgd.net/*",
+    "https://peliculasgd.co/*",
+    "https://neworldtravel.com/*",
+    "https://acortame.site/*",
+    "https://mega.nz/*",
+    "https://drive.google.com/*",
+    "https://www.mediafire.com/*",
+    "https://1fichier.com/*",
+    "https://ouo.io/*",
+    "https://ouo.press/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options/options.html",
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "adblock_rules",
+        "enabled": true,
+        "path": "rules/ad-block-rules.json"
+      }
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-scripts/common/timer-accel.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://hackstore.mx/*", "https://peliculasgd.net/*", "https://peliculasgd.co/*"],
+      "js": ["content-scripts/common/dom-analyzer.js"],
+      "run_at": "document_end",
+      "world": "ISOLATED"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["lib/*.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

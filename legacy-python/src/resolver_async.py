@@ -1,103 +1,78 @@
 """
-resolver_async.py - Version async del resolver para uso con GUI basadas en asyncio.
-Soluciona el problema de NotImplementedError en Windows con WindowsSelectorEventLoopPolicy.
+resolver_async.py - Async bridge for the LinkResolver.
+Uses ThreadPoolExecutor to run the sync resolver without blocking the event loop.
 """
 
-from typing import Optional, Callable
-from playwright.async_api import async_playwright
-from config import SearchCriteria
-from adapters import get_adapter
-from matcher import LinkOption
-from logger import get_logger
-from screenshot_handler import ScreenshotHandler
-from history_manager import HistoryManager
-from network_analyzer import NetworkAnalyzer
-from dom_analyzer import DOMAnalyzer
-from timer_interceptor import TimerInterceptor
-from stealth_config import apply_stealth_to_context, setup_popup_handler, STEALTH_AVAILABLE
-from vision_fallback import VisionFallback
-import time
 import asyncio
-import sys
-
+from typing import Optional, List, Callable
+from concurrent.futures import ThreadPoolExecutor
+from .resolver import LinkResolver
+from .matcher import LinkOption
+from .logger import get_logger
 
 class AsyncLinkResolver:
     """
-    Version async del LinkResolver que funciona correctamente con event loops asyncio.
-    Especialmente diseñado para GUIs que usan asyncio (NiceGUI, Streamlit, etc).
+    An async wrapper around the synchronous LinkResolver.
+    This prevents mixing async/sync Playwright and ensures GUI stability.
     """
-
-    def __init__(self, headless: bool = True, screenshot_callback: Optional[Callable] = None, max_retries: int = 2):
+    def __init__(self, headless: bool = True, screenshot_callback: Optional[Callable] = None, max_retries: int = 1):
         self.headless = headless
-        self.logger = get_logger()
         self.screenshot_callback = screenshot_callback
-        self.screenshot_handler = ScreenshotHandler(callback=screenshot_callback)
         self.max_retries = max_retries
-        self.history_manager = HistoryManager()
-        self.use_network_interception = True
-        self.accelerate_timers = True
-        self.use_vision_fallback = True
+        self._executor = ThreadPoolExecutor(max_workers=1)
+        self.logger = get_logger()
 
     async def resolve(
         self,
         url: str,
         quality: str = "1080p",
         format_type: str = "WEB-DL",
-        providers: list = None,
+        providers: Optional[List[str]] = None,
         language: str = "latino",
     ) -> Optional[LinkOption]:
-        """
-        Resuelve un link de forma asincrona.
-        """
-        # Intentar resolver con retry
-        for attempt in range(self.max_retries + 1):
-            try:
-                result = await self._resolve_internal(url, quality, format_type, providers, language)
-                return result
-            except Exception as e:
-                if attempt < self.max_retries:
-                    wait_time = 2 ** attempt
-                    self.logger.warning(f"Resolution attempt {attempt + 1} failed: {str(e)[:80]}")
-                    self.logger.info(f"Retrying after {wait_time}s...")
-                    await asyncio.sleep(wait_time)
-                else:
-                    self.logger.error(f"All {self.max_retries + 1} resolution attempts failed")
-                    return None
-    
-    async def _resolve_internal(
-        self,
-        url: str,
-        quality: str = "1080p",
-        format_type: str = "WEB-DL",
-        providers: list = None,
-        language: str = "latino",
-    ) -> Optional[LinkOption]:
-        if providers is None:
-            providers = ["utorrent", "drive.google"]
-
-        # Validar input
-        if not url or not isinstance(url, str):
-            self.logger.error(f"Invalid URL provided: {url}")
-            return None
-
-        # Log inicio
-        self.logger.info(f"Starting resolution for: {url[:80]}...")
-        self.logger.info(f"Search criteria: {quality} {format_type} - Providers: {', '.join(providers)}")
-
-        # Crear criterios
-        criteria = SearchCriteria(
-            quality=quality,
-            format=format_type,
-            preferred_providers=providers,
-            language=language,
+        """Runs the sync resolver in a separate thread."""
+        loop = asyncio.get_event_loop()
+        
+        # We pass the sync resolver call to the executor
+        return await loop.run_in_executor(
+            self._executor,
+            self._sync_resolve_task,
+            url,
+            quality,
+            format_type,
+            providers,
+            language
         )
 
-        result = None
-        browser = None
-        context = None
+    def _sync_resolve_task(
+        self, 
+        url: str, 
+        quality: str, 
+        format_type: str, 
+        providers: List[str], 
+        language: str
+    ) -> Optional[LinkOption]:
+        """The actual synchronous task running in the thread."""
+        # Note: We create a NEW resolver instance per task to ensure clean state
+        resolver = LinkResolver(
+            headless=self.headless, 
+            screenshot_callback=self.screenshot_callback,
+            max_retries=self.max_retries
+        )
+        try:
+            return resolver.resolve(
+                url=url,
+                quality=quality,
+                format_type=format_type,
+                providers=providers,
+                language=language
+            )
+        except Exception as e:
+            self.logger.error(f"AsyncBridge: Error in sync task: {e}")
+            return None
 
-        # Fix para Windows: cambiar temporalmente a ProactorEventLoopPolicy
-        # ya que WindowsSelectorEventLoopPolicy no soporta subprocess
+    def __del__(self):
+        self._executor.shutdown(wait=False)
         old_policy = None
         if sys.platform == 'win32':
             try:
