@@ -4,25 +4,34 @@
  */
 
 (function() {
-    const SPEED_FACTOR = 20.0;
+    // Reducimos el factor de velocidad para ser menos detectables (10x en vez de 20x)
+    const SPEED_FACTOR = 10.0;
     const originalSetTimeout = window.setTimeout;
     const originalSetInterval = window.setInterval;
 
-    // 1. Wrap timers
+    // 1. Wrap timers con mayor sutileza
     window.setTimeout = function(handler, timeout, ...args) {
-        if (timeout > 2000) {
-            timeout = timeout / SPEED_FACTOR;
+        // No tocar timeouts muy cortos (suelen ser de UI o analytics)
+        if (timeout > 500) {
+            // Añadir un pequeño jitter aleatorio para imitar comportamiento humano
+            const jitter = Math.random() * 50;
+            timeout = (timeout / SPEED_FACTOR) + jitter;
         }
         return originalSetTimeout.call(window, handler, timeout, ...args);
     };
 
     window.setInterval = function(handler, timeout, ...args) {
-        if (timeout > 2000) {
+        if (timeout > 500) {
             timeout = timeout / SPEED_FACTOR;
         }
         return originalSetInterval.call(window, handler, timeout, ...args);
     };
 
+    // 1.5 Ocultar huellas de automatización
+    try {
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    } catch (e) {}
+    
     // 2. Anti-debugger override
     const originalConstructor = Function.prototype.constructor;
     Function.prototype.constructor = function(str) {

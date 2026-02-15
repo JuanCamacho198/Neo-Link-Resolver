@@ -196,12 +196,21 @@ chrome.webNavigation.onCompleted.addListener(async (details) => {
     if (details.frameId !== 0) return;
     
     const tabId = details.tabId;
+    const url = details.url;
+
     if (!activeResolutions.has(tabId)) return;
     
     const state = activeResolutions.get(tabId);
     if (state.type !== 'shortener') return;
 
-    notifyPopup({ action: "LOG", message: "Página cargada. Aplicando aceleración..." });
+    // Detectar si caímos en una trampa (Google u otros)
+    if (url.includes("google.com") || url.includes("bing.com")) {
+        notifyPopup({ action: "LOG", message: "⚠️ Error: Falla en el acortador (Redirección a Google)." });
+        activeResolutions.delete(tabId);
+        return;
+    }
+
+    notifyPopup({ action: "LOG", message: `Visitando: ${new URL(url).hostname}...` });
     
     try {
         if (!(await isTabValid(tabId))) return;
@@ -223,18 +232,37 @@ chrome.webNavigation.onCompleted.addListener(async (details) => {
             }
         );
 
-        // Inject handler (ISOLATED WORLD)
-        await safeExecuteScript(
-            { tabId },
-            { files: ['content-scripts/shortener/handler.js'] }
-        );
+    // Inject handler (ISOLATED WORLD)
+    await safeExecuteScript(
+        { tabId },
+        { files: ['content-scripts/shortener/handler.js'] }
+    );
 
-        // Find and click continue
+    // Intentar encontrar y clickear con reintentos para esperar a que termine el contador
+    let attempts = 0;
+    const maxAttempts = 10;
+    
+    const pollButtons = async () => {
+        if (attempts >= maxAttempts) {
+            notifyPopup({ action: "LOG", message: "Error: No se encontró botón habilitado." });
+            return;
+        }
+
         const result = await safeTabMessage(tabId, { action: "FIND_CONTINUE" });
         if (result && result.success) {
-            notifyPopup({ action: "LOG", message: "Botón de continuación activado automáticamente." });
+            notifyPopup({ action: "LOG", message: "Botón detectado. Ejecutando salto..." });
+        } else if (result && result.reason === "countdown_active") {
+            attempts++;
+            notifyPopup({ action: "LOG", message: `Esperando contador... (${attempts})` });
+            setTimeout(pollButtons, 2000);
+        } else {
+            attempts++;
+            setTimeout(pollButtons, 2000);
         }
-    } catch (err) {
+    };
+
+    pollButtons();
+} catch (err) {
         if (!err.message.includes("No tab with id")) {
             console.error("Injection error:", err);
         }
