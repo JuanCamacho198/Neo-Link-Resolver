@@ -40,28 +40,38 @@ chrome.webRequest.onBeforeRequest.addListener(
 );
 
 // 3. Message handler from Popup
-chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "START_RESOLUTION") {
-        const { url, criteria } = request;
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        
-        if (!tab) return;
-        
-        activeResolutions.set(tab.id, {
-            url,
-            criteria: new SearchCriteria(criteria),
-            capturedLinks: [],
-            step: 'init'
-        });
+        (async () => {
+            const { url, criteria } = request;
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            
+            if (!tab) {
+                sendResponse({ success: false, error: "No active tab" });
+                return;
+            }
+            
+            activeResolutions.set(tab.id, {
+                url,
+                criteria: new SearchCriteria(criteria),
+                capturedLinks: [],
+                step: 'init'
+            });
 
-        const site = getSiteType(url);
-        if (site === 'peliculasgd') {
-            resolvePeliculasGD(tab.id, url);
-        } else if (site === 'hackstore') {
-            resolveHackStore(tab.id, url);
-        } else {
-            chrome.runtime.sendMessage({ action: "LOG", message: "Unsupported site." });
-        }
+            const site = getSiteType(url);
+            
+            // Notify popup immediately
+            sendResponse({ success: true, site });
+
+            if (site === 'peliculasgd') {
+                resolvePeliculasGD(tab.id, url);
+            } else if (site === 'hackstore') {
+                resolveHackStore(tab.id, url);
+            } else {
+                chrome.runtime.sendMessage({ action: "LOG", message: "Sitio no compatible o no detectado." });
+            }
+        })();
+        return true; // Keep channel open for async response
     }
 });
 
@@ -76,13 +86,13 @@ async function resolvePeliculasGD(tabId, url) {
             files: ['content-scripts/peliculasgd/extractor.js']
         });
 
-        const [result] = await chrome.tabs.sendMessage(tabId, { action: "EXTRACT_TOKEN" });
+        const result = await chrome.tabs.sendMessage(tabId, { action: "EXTRACT_TOKEN" });
         if (result && result.success) {
             chrome.runtime.sendMessage({ action: "LOG", message: "Shortener URL found via token." });
             startShortenerChain(tabId, result.url);
         } else {
             // Step 2: Click button if no token
-            const [btnResult] = await chrome.tabs.sendMessage(tabId, { action: "FIND_BUTTON" });
+            const btnResult = await chrome.tabs.sendMessage(tabId, { action: "FIND_BUTTON" });
             if (btnResult && btnResult.success) {
                 chrome.runtime.sendMessage({ action: "LOG", message: "Clicking download button..." });
                 // We'd click and watch for new tab here
@@ -105,10 +115,10 @@ async function resolveHackStore(tabId, url) {
         });
 
         await chrome.tabs.sendMessage(tabId, { action: "CLOSE_SPLASH" });
-        const [qResult] = await chrome.tabs.sendMessage(tabId, { action: "DETECT_QUALITIES" });
+        const qResult = await chrome.tabs.sendMessage(tabId, { action: "DETECT_QUALITIES" });
         chrome.runtime.sendMessage({ action: "LOG", message: `Detected: ${qResult.qualities.join(', ')}` });
 
-        const [pResult] = await chrome.tabs.sendMessage(tabId, { action: "EXTRACT_PROVIDERS" });
+        const pResult = await chrome.tabs.sendMessage(tabId, { action: "EXTRACT_PROVIDERS" });
         // Use Matcher here in the real version
         if (pResult.providers.length > 0) {
             chrome.runtime.sendMessage({ action: "LOG", message: `Found ${pResult.providers.length} providers.` });

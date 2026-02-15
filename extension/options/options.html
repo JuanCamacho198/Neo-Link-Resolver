@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Neo-Link Settings</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg: #0f172a;
+            --text: #f8fafc;
+            --card: #1e293b;
+        }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            padding: 30px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        h1 { color: #60a5fa; border-bottom: 2px solid #334155; padding-bottom: 10px; }
+        .section {
+            background: var(--card);
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .section h2 { margin-top: 0; font-size: 1.1rem; color: #94a3b8; }
+        .row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; }
+        .desc { font-size: 0.85rem; color: #64748b; margin-top: -10px; margin-bottom: 15px; }
+        input[type="range"] { width: 200px; }
+        button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        button:hover { background: #1d4ed8; }
+        #status { color: #4ade80; margin-left: 10px; font-weight: bold; }
+        .danger-zone { border: 1px solid #ef4444; }
+        .danger-zone h2 { color: #ef4444; }
+    </style>
+</head>
+<body>
+    <h1>🛠️ Neo-Link Settings</h1>
+    
+    <div class="section">
+        <h2>Acceleration Engine</h2>
+        <div class="row">
+            <span>Timer Speed Factor:</span>
+            <span><span id="speed-val">20</span>x</span>
+        </div>
+        <input type="range" id="speed-factor" min="1" max="100" value="20">
+        <p class="desc">Speeds up setTimeout and setInterval to bypass wait times on shorteners.</p>
+    </div>
+
+    <div class="section">
+        <h2>Security & Privacy</h2>
+        <div class="row">
+            <span>Block Ads & Popups:</span>
+            <input type="checkbox" id="block-ads" checked>
+        </div>
+        <p class="desc">Uses a custom declarative engine to prevent redirects and invasive trackers.</p>
+    </div>
+
+    <div class="section danger-zone">
+        <h2>History Management</h2>
+        <div class="row">
+            <span>Clear Resolution History:</span>
+            <button id="clear-history" style="background: #ef4444;">CLEAR ALL</button>
+        </div>
+    </div>
+
+    <div style="display: flex; align-items: center;">
+        <button id="save-btn">SAVE SETTINGS</button>
+        <span id="status"></span>
+    </div>
+
+    <script src="options.js"></script>
+</body>
+</html>

@@ -1,61 +1,87 @@
-/**
- * popup.js - UI logic for the extension popup.
- */
-
+// popup.js - Mejorado para PeliculasGD y UI
 document.addEventListener('DOMContentLoaded', async () => {
     const resolveBtn = document.getElementById('resolve-btn');
     const logDiv = document.getElementById('log');
     const resultBox = document.getElementById('result-box');
     const finalLinkSpan = document.getElementById('final-link');
     const copyBtn = document.getElementById('copy-btn');
+    const formatControls = document.getElementById('format-controls');
+    const movieInfo = document.getElementById('movie-info');
+    const movieTitleElem = document.getElementById('movie-title');
 
-    function addLog(msg) {
-        const entry = document.createElement('div');
-        entry.className = 'log-entry';
-        entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-        logDiv.appendChild(entry);
+    function log(msg) {
+        const time = new Date().toLocaleTimeString();
+        logDiv.innerHTML += `<div>[${time}] ${msg}</div>`;
         logDiv.scrollTop = logDiv.scrollHeight;
     }
 
-    resolveBtn.addEventListener('click', async () => {
+    // 1. Detectar Sitio
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab) return log("Error: No se detectó pestaña.");
+
+    const url = tab.url;
+    let isPeliculasGD = url.includes('peliculasgd.net') || url.includes('peliculasgd.co');
+
+    if (isPeliculasGD) {
+        // Modo PeliculasGD: Ocultar selectores, mostrar título
+        formatControls.style.display = 'none';
+        movieInfo.style.display = 'block';
+        
+        // Limpiar título de la pestaña (ej: "Ver Matrix 4... - PeliculasGD")
+        let cleanTitle = tab.title.replace(/^Ver\s+/i, '').split('-')[0].trim();
+        if (!cleanTitle) cleanTitle = "Película Desconocida";
+        movieTitleElem.textContent = cleanTitle;
+        
+        resolveBtn.textContent = "OBTENER ENLACE";
+    } else {
+        // Modo Normal (HackStore u otros)
+        movieInfo.style.display = 'none';
+        formatControls.style.display = 'grid'; // Restaurar grid del CSS
+        resolveBtn.textContent = "ANALIZAR PÁGINA";
+    }
+
+    // 2. Acción del Botón
+    resolveBtn.addEventListener('click', () => {
+        resolveBtn.disabled = true;
+        resolveBtn.style.opacity = "0.7";
+        resolveBtn.textContent = "PROCESANDO...";
+        
         const quality = document.getElementById('quality').value;
         const format = document.getElementById('format').value;
-        
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tab) return;
 
-        addLog(`Analyzing ${tab.url.substring(0, 30)}...`);
+        log(`Iniciando resolución en: ${new URL(url).hostname}...`);
         
         chrome.runtime.sendMessage({
             action: "START_RESOLUTION",
-            url: tab.url,
-            criteria: {
-                quality,
-                format,
-                providers: ["utorrent", "drive.google", "mega"]
+            url: url,
+            criteria: { quality, format }
+        }, (response) => {
+            if (chrome.runtime.lastError) {
+                log("Error: El servicio no responde. Recarga la extensión.");
+                resolveBtn.disabled = false;
+            } else {
+                log("Solicitud enviada al núcleo.");
             }
         });
     });
 
-    copyBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(finalLinkSpan.textContent);
-        addLog("Link copied to clipboard!");
-    });
-
-    // Listen for updates from Background Script
-    chrome.runtime.onMessage.addListener((request) => {
-        if (request.action === "LOG") {
-            addLog(request.message);
-        }
-        if (request.action === "RESOLVED") {
+    // 3. Escuchar Respuestas
+    chrome.runtime.onMessage.addListener((msg) => {
+        if (msg.action === "LOG") log(msg.message);
+        if (msg.action === "RESOLVED") {
             resultBox.style.display = "block";
-            finalLinkSpan.textContent = request.url;
-            addLog("SUCCESS: Link found!");
+            finalLinkSpan.innerText = msg.url;
+            log("✅ ¡Enlace capturado con éxito!");
+            resolveBtn.textContent = "¡LISTO!";
+            resolveBtn.disabled = false;
+            resolveBtn.style.opacity = "1";
         }
     });
-
-    // Load saved settings if any
-    const settings = await chrome.storage.sync.get(['quality', 'format']);
-    if (settings.quality) document.getElementById('quality').value = settings.quality;
-    if (settings.format) document.getElementById('format').value = settings.format;
+    
+    // Copiar al portapapeles
+    copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(finalLinkSpan.innerText);
+        copyBtn.innerText = "¡COPIADO!";
+        setTimeout(() => copyBtn.innerText = "COPIAR ENLACE", 2000);
+    });
 });
