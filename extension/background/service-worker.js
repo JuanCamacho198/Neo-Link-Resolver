@@ -18,6 +18,8 @@ function notifyPopup(message) {
 async function isTabValid(tabId) {
     try {
         const tab = await chrome.tabs.get(tabId);
+        // Avoid internal chrome/edge/extension pages
+        if (tab.url.startsWith('chrome') || tab.url.startsWith('edge') || tab.url.startsWith('about')) return false;
         return !!tab;
     } catch {
         return false;
@@ -29,7 +31,7 @@ async function safeExecuteScript(target, options) {
         if (!(await isTabValid(target.tabId))) return null;
         return await chrome.scripting.executeScript({ target, ...options });
     } catch (err) {
-        if (!err.message.includes("No tab with id")) {
+        if (!err.message.includes("No tab with id") && !err.message.includes("Cannot access")) {
             console.error("Safe injection error:", err);
         }
         return null;

@@ -14,17 +14,7 @@
     "scripting"
   ],
   "host_permissions": [
-    "https://hackstore.mx/*",
-    "https://peliculasgd.net/*",
-    "https://peliculasgd.co/*",
-    "https://neworldtravel.com/*",
-    "https://acortame.site/*",
-    "https://mega.nz/*",
-    "https://drive.google.com/*",
-    "https://www.mediafire.com/*",
-    "https://1fichier.com/*",
-    "https://ouo.io/*",
-    "https://ouo.press/*"
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background/service-worker.js",
